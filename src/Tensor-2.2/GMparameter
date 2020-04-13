@@ -1,0 +1,6 @@
+diff_delta			1d-8		!differentiation,(f(x+delta)-f(x))/delta,diff_delta is the delta
+max_step				5d0		!go along the dirction with max_step,new_x=x+max_step
+delta_step			0.9		!if f(new_x)<f(x),max_step=max_step*delta_step,delta_step should smaller than 1 
+stop_error			1d-8		if abs(f(new_x)-f(x))<stop_error,output
+max_running			300		max running
+print_flag			1			if 1,print the progress

@@ -1,0 +1,2038 @@
+!
+!                   _ooOoo_
+!                  o8888888o
+!                  88" . "88
+!                  (| -_- |)
+!                  O\  =  /O
+!               ____/`---'\____
+!             .'  \\|     |//  `.
+!            /  \\|||  :  |||//  \
+!           /  _||||| -:- |||||-  \
+!           |   | \\\  -  /// |   |
+!           | \_|  ''\---/''  |   |
+!           \  .-\__  `-`  ___/-. /
+!         ___`. .'  /--.--\  `. . __
+!      ."" '<  `.___\_<|>_/___.'  >'"".
+!     | | :  `- \`.;`\ _ /`;.`/ - ` : | |
+!     \  \ `-.   \_ __\ /__ _/   .-` /  /
+!======`-.____`-.___\_____/___.-`____.-'======
+!                   `=---='
+!^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+!       Buddha blessed , no BUG 
+!****************************************************
+!****************************************************
+!*****************     note      ********************
+!****************************************************
+!****************************************************
+!
+!		1. This is the code of eigen value using arpack.
+!	It need arpack.mpif90 name.f90 -o name -larpack -llapack -lrefblas 
+!****************************************************
+!****************************************************
+module eigen_value
+	use Tensor_complex
+	implicit none
+	integer,save,private::max_ncv=100!use in funciton of eigen2 and eigen_max_min2 ncv<=max_ncv
+	logical,private,save::check_flag=.false.!use for checking
+	
+!*************************************************************************************
+!			eigen value,output store in a Tensor link
+!*************************************************************************************
+	interface eigenlink
+		module procedure eigen_all!(H,ifvec),ifvec=.true.,output eigenvectors,ifvec is optional,if no ifvec,ifvec will be .false.
+!		the same as eig,but it is a function and eng is a subroutine
+
+!eigenvalue near some value,say s0
+!ncv is the Number of Lanczos vectors to be generated.2 <= NCV-num_of_eig and NCV <= N		
+!tol:Stopping criteria
+!when use the function below,test them first
+!outvector is optional,if no outvector,outvector will be .false.
+		module procedure eigen1!(T,s0,num_of_eig,ncv,tol,outvector)
+		module procedure eigen2!(T,s0,num_of_eig,ncv,outvector)
+		module procedure eigen3!(T,s0,num_of_eig,outvector)
+		
+		module procedure eigen_max_min1!(T,WHICH,num_of_eig,ncv,tol,outvector)
+		module procedure eigen_max_min2!(T,WHICH,num_of_eig,ncv,outvector)
+		module procedure eigen_max_min3!(T,WHICH,num_of_eig,outvector)
+!				WHICH   Character*2.  (INPUT)
+!          'LM' -> want the NEV eigenvalues of largest magnitude.
+!          'SM' -> want the NEV eigenvalues of smallest magnitude.
+!          'LR' -> want the NEV eigenvalues of largest real part.
+!          'SR' -> want the NEV eigenvalues of smallest real part.
+!          'LI' -> want the NEV eigenvalues of largest imaginary part.
+!          'SI' -> want the NEV eigenvalues of smallest imaginary part.
+!
+!             The User should provide the subroutine of matrix prduct vector
+!             The subroutine should be look like:
+!                            call H_phi(H,phi)
+!             where H is the Hamiltanion and phi is the state
+!
+!		the max of min eigen value
+!		on output,a Tensor link,link:[eigenvalue]->[eigenvector]
+!		link.i.2 is a matrix of eigenvector , and the columns of which is the approximate 
+!	eigenvectors (Ritz vectors) corresponding eigenvalue
+!	ncv number of lonzcos vector	
+!	if outvector=.false. no eigenvectors
+!				WHICH   Character*2.  (INPUT)
+!          'LM' -> want the NEV eigenvalues of largest magnitude.
+!          'SM' -> want the NEV eigenvalues of smallest magnitude.
+!          'LR' -> want the NEV eigenvalues of largest real part.
+!          'SR' -> want the NEV eigenvalues of smallest real part.
+!          'LI' -> want the NEV eigenvalues of largest imaginary part.
+!          'SI' -> want the NEV eigenvalues of smallest imaginary part.
+!	ncv:Number of Lanczos vectors to be generated.
+!	n the dimension of H
+!	maxitr:number of running
+!  dimension_of_phi: type(Dimension), the dimension of the state
+!  dimension_of_phi_int: integer (:) , the  dimension of the state
+!H_phi : call H_phi(H,state), state=H*state
+		module procedure eigenvalue_H_phi1!(H_phi,H,dimension_of_phi,WHICH,num_of_eig,ncv,tol,maxitr,outvector_)
+		module procedure eigenvalue_H_phi2!(H_phi,H,dimension_of_phi,WHICH,num_of_eig,outvector_)
+		module procedure eigenvalue_H_phi3!(H_phi,H,dimension_of_phi_int,WHICH,num_of_eig,outvector_)
+		module procedure eigenvalue_H_phi4!(H_phi,H,dimension_of_phi,WHICH,num_of_eig,ncv,outvector_)
+		module procedure eigenvalue_H_phi5!(H_phi,H,dimension_of_phi_int,WHICH,num_of_eig,ncv,dimension_of_phi,outvector_)
+!-----
+!             call H_phi(phi)
+!             where phi is intent(inout)
+!             H_phi(phi) should be
+!                1. if(.not.getfalg(phi)) initial phi
+!                2. if(getfalg(phi)) phi=H*phi
+		module procedure eigenvalue_H_phi21!(H_phi,WHICH,num_of_eig,ncv,tol,maxitr,outvector_)
+		module procedure eigenvalue_H_phi22!(H_phi,WHICH,num_of_eig,outvector_)
+		module procedure eigenvalue_H_phi24!(H_phi,WHICH,num_of_eig,ncv,outvector_)
+	end interface
+!*************************************************************************************
+!			eigen value,output store in a array of Tensors
+!*************************************************************************************	
+	interface eigen
+		module procedure eigen_all_array!(H,ifvec),ifvec=.true.,output eigenvectors,ifvec is optional,if no ifvec,ifvec will be .false.
+!		the same as eig,but it is a function and eng is a subroutine
+
+!eigenvalue near some value,say s0
+!ncv is the Number of Lanczos vectors to be generated.2 <= NCV-num_of_eig and NCV <= N		
+!tol:Stopping criteria
+!when use the function below,test them first
+!outvector is optional,if no outvector,outvector will be .false.
+		module procedure eigen_array1!(T,s0,num_of_eig,ncv,tol,outvector)
+		module procedure eigen_array2!(T,s0,num_of_eig,ncv,outvector)
+		module procedure eigen_array3!(T,s0,num_of_eig,outvector)
+		
+		module procedure eigen_max_min_array1!(T,WHICH,num_of_eig,ncv,tol,outvector)
+		module procedure eigen_max_min_array2!(T,WHICH,num_of_eig,ncv,outvector)
+		module procedure eigen_max_min_array3!(T,WHICH,num_of_eig,outvector)
+!				WHICH   Character*2.  (INPUT)
+!          'LM' -> want the NEV eigenvalues of largest magnitude.
+!          'SM' -> want the NEV eigenvalues of smallest magnitude.
+!          'LR' -> want the NEV eigenvalues of largest real part.
+!          'SR' -> want the NEV eigenvalues of smallest real part.
+!          'LI' -> want the NEV eigenvalues of largest imaginary part.
+!          'SI' -> want the NEV eigenvalues of smallest imaginary part.
+!             The User should provide the subroutine of matrix prduct vector
+!             The subroutine should be look like:
+!                            call H_phi(H,phi)
+!             where H is the Hamiltanion and phi is the state
+!
+!		the max of min eigen value
+!		on output,a array of Tensor :[eigenvalue],[eigenvector]
+!		output(2) is a matrix of eigenvector , and the columns of which is the approximate 
+!	eigenvectors (Ritz vectors) corresponding eigenvalue
+!	ncv number of lonzcos vector	
+!	if outvector=.false. no eigenvectors
+!				WHICH   Character*2.  (INPUT)
+!          'LM' -> want the NEV eigenvalues of largest magnitude.
+!          'SM' -> want the NEV eigenvalues of smallest magnitude.
+!          'LR' -> want the NEV eigenvalues of largest real part.
+!          'SR' -> want the NEV eigenvalues of smallest real part.
+!          'LI' -> want the NEV eigenvalues of largest imaginary part.
+!          'SI' -> want the NEV eigenvalues of smallest imaginary part.
+!	ncv:Number of Lanczos vectors to be generated.
+!	n the dimension of H
+!	maxitr:number of running
+!  H are a  array of Tensor
+!  dimension_of_phi: type(Dimension), the dimension of the state
+!  dimension_of_phi_int: integer (:) , the  dimension of the state
+		module procedure eigenvalue_H_phi_array1!(H_phi,H,dimension_of_phi,WHICH,num_of_eig,ncv,tol,maxitr,outvector_)
+		module procedure eigenvalue_H_phi_array2!(H_phi,H,dimension_of_phi,WHICH,num_of_eig,outvector_)
+		module procedure eigenvalue_H_phi_array3!(H_phi,H,dimension_of_phi_int,WHICH,num_of_eig,outvector)
+!-----
+!             call H_phi(phi)
+!             where phi is intent(inout)
+!             H_phi(phi) should be
+!                1. if(.not.getfalg(phi)) initial phi
+!                2. if(getfalg(phi)) phi=H*phi
+		module procedure eigenvalue_H_phi_array21!(H_phi,WHICH,num_of_eig,ncv,tol,maxitr,outvector_)
+		module procedure eigenvalue_H_phi_array22!(H_phi,WHICH,num_of_eig,outvector_)
+		module procedure eigenvalue_H_phi_array24!(H_phi,WHICH,num_of_eig,ncv,outvector)
+	end interface
+!*************************************************************************************	
+!*************************************************************************************	
+!*************************************************************************************	
+
+
+!			below is 	Double Tensor
+
+
+
+!*************************************************************************************
+!			eigen value,output store in a Tensor link
+!*************************************************************************************
+	interface Deigenlink
+		module procedure Deigen_all!(H,ifvec),ifvec=.true.,output eigenvectors,ifvec is optional,if no ifvec,ifvec will be .false.
+!		the same as eig,but it is a function and Deng is a subroutine
+
+		!Do not finished the part of Lanzcos here
+	end interface
+!*************************************************************************************
+!			eigen value,output store in a array of Tensors
+!*************************************************************************************	
+	interface Deigen
+		module procedure Deigen_all_array!(H,ifvec),ifvec=.true.,output eigenvectors,ifvec is optional,if no ifvec,ifvec will be .false.
+	end interface
+	
+!*************************************************************************************	
+!*************************************************************************************	
+!*************************************************************************************	
+contains
+!*******************************************************
+!****************  eigen value   **********************
+!ifvec=.true.,output eigenvectors
+!result:[eigenvalues]->[eigenvectors]
+!H=(res.i.2)*eye(res.i.1))*(.H.(res.i.2))
+	type(Tensorlink) function eigen_all(H,ifvec_)
+		type(Tensor),intent(in) ::H
+		logical,optional,intent(in)::ifvec_
+		logical::ifvec
+		type(Tensornode),pointer ::val,vec
+		complex*16,allocatable :: Hdata(:),work(:)
+		complex*16,allocatable :: engVal(:),engVec(:)
+		integer :: hdim(2),i,j,N,lwork,info,SDIM,N2
+		real*8,allocatable::rwork(:)
+		logical,allocatable::bwork(:)
+		CHARACTER*1::JOBVS
+		type(dimension)::newHdim
+		hdim(1)=H.dim.1
+		hdim(2)=H.dim.2
+		newHdim=.subDim.H
+		if(getRank(H).ne.2) then
+			write(*,*)"ERROR in eng"
+			write(*,*)"input Tensor should be a matrix"
+			stop
+		end if
+		if(hdim(1).ne.hdim(2)) then
+			write(*,*)"ERROR in eng"
+			stop
+		end if
+		if(present(ifvec_)) then
+			ifvec=ifvec_
+		else
+			ifvec=.false.
+		end if
+		N=hdim(1)
+		N2=N*N
+		lwork=N2
+		
+		allocate(Hdata(N2))
+		allocate(engVal(N))
+		allocate(engVec(N2))
+		allocate(rwork(N))
+		allocate(work(lwork))
+		allocate(bwork(N))
+		call ZCOPY(N2,H%Tensor_Data,1,Hdata,1)
+		!Hdata=H
+		if(ifvec) then
+			JOBVS='V'
+		else
+			JOBVS='N'
+		end if
+		
+		call ZGEES(JOBVS,'N',1,N,Hdata,N,SDIM,engVal,engVec,N,WORK,LWORK,RWORK,BWORK,INFO)
+		allocate(val)
+		val%Ten=engVal
+		call push_back(eigen_all,val)
+		if(ifvec) then
+			allocate(vec)
+			vec%Ten=engVec
+			call resetdim(vec%Ten,(/N,N/))
+			call push_back(eigen_all,vec)
+		end if
+		return
+	end function	
+!ifvec=.true.,output eigenvectors
+!result:[eigenvalues]->[eigenvectors] is a array
+!H=res(2)*eye(res(1))*(.H.res(2))
+	function eigen_all_array(H,ifvec_) result(res)
+		type(Tensor),allocatable::res(:)
+		type(Tensor),intent(in) ::H
+		logical,optional,intent(in)::ifvec_
+		logical::ifvec
+		complex*16,allocatable :: Hdata(:),work(:)
+		complex*16,allocatable :: engVal(:),engVec(:)
+		integer :: hdim(2),i,j,N,lwork,info,SDIM,N2
+		real*8,allocatable::rwork(:)
+		logical,allocatable::bwork(:)
+		CHARACTER*1::JOBVS
+		type(dimension)::newHdim
+		hdim(1)=H.dim.1
+		hdim(2)=H.dim.2
+		newHdim=.subDim.H
+		if(getRank(H).ne.2) then
+			write(*,*)"ERROR in eng"
+			write(*,*)"input Tensor should be a matrix"
+			stop
+		end if
+		if(hdim(1).ne.hdim(2)) then
+			write(*,*)"ERROR in eng"
+			stop
+		end if
+		if(present(ifvec_)) then
+			ifvec=ifvec_
+		else
+			ifvec=.false.
+		end if
+		N=hdim(1)
+		N2=N*N
+		lwork=N2
+		
+		allocate(Hdata(N2))
+		allocate(engVal(N))
+		allocate(engVec(N2))
+		allocate(rwork(N))
+		allocate(work(lwork))
+		allocate(bwork(N))
+		call ZCOPY(N2,H%Tensor_Data,1,Hdata,1)
+		!Hdata=H
+		if(ifvec) then
+			JOBVS='V'
+			allocate(res(2))
+		else
+			JOBVS='N'
+			allocate(res(1))
+		end if
+		
+		call ZGEES(JOBVS,'N',1,N,Hdata,N,SDIM,engVal,engVec,N,WORK,LWORK,RWORK,BWORK,INFO)
+		
+		res(1)=engVal
+		if(ifvec) then
+			res(2)=engVec
+			call resetdim(res(2),(/N,N/))
+		end if
+		return
+	end function	
+!********************************************************
+!		eigen value near some value, say s0
+!		on output,a Tensor link,link:[eigenvalue]->[eigenvector]
+!		link.i.2 is a matrix of eigenvector , and the columns of which is the approximate 
+!	eigenvectors (Ritz vectors) corresponding eigenvalue
+!	ncv number of lonzcos vector
+!	if outvector=.false. no eigenvectors
+	 function eigen1(T,s0,num_of_eig,ncv,tol,outvector_) result(resultlink)
+	 	type(Tensorlink)::resultlink
+		type(Tensor),intent(in)::T
+		complex*16,intent(in)::s0
+		integer,intent(in)::num_of_eig,ncv
+		real*8,intent(in)::tol
+		logical,optional,intent(in)::outvector_
+		logical::outvector
+		complex*16,allocatable::A(:),v(:,:),resid(:),d(:),Cdata(:),workdata(:)
+		complex*16,allocatable::workd(:),workev(:),workl(:)
+		
+		integer::ido,info,ishfts,maxitr,mode,iparam(11), ipntr(14)
+		integer,allocatable::ipiv(:)
+		logical::continu
+		real*8,allocatable::rwork(:)
+		logical,allocatable::selework(:)
+		integer,allocatable::IPIV2(:)
+		integer::icouter,info2
+		complex*16,allocatable::C0(:,:),C(:,:)
+		integer::i,j,n,lworkl,ierr
+		type(Tensornode),pointer::res_eigvalue,res_eigenvector
+		if(getRank(T).ne.2) then
+			write(*,*)"ERROR in dimension of input Tensor,eigen"
+			write(*,*)"stop"
+			stop
+		end if
+		n=T.dim.1
+		if(n.ne.(T.dim.2)) then
+		   write(*,*)"ERROR in dimension of input Tensor,eigen"
+		   write(*,*)"Should be a matrix of n * n"
+			write(*,*)"stop"
+			stop
+		end if
+		if(present(outvector_))then
+			outvector=outvector_
+		else
+			outvector=.false.
+		end if
+		call cleanlink(resultlink)
+	   allocate(C0(n,n))
+	   C0=0.
+	   do i=1,n
+			C0(i,i)=s0
+	   end do
+	   C=T
+	   C0=C-C0
+      lworkl = 3*ncv**2+5*ncv
+		allocate(workd(3*n))
+		allocate(workev(2*ncv))
+		allocate(workl(lworkl))
+		allocate(ipiv(n))
+		allocate(rwork(ncv))
+		allocate(v(n,ncv))
+		allocate(resid(n))
+		allocate(d(num_of_eig+1))
+		allocate(IPIV2(n))
+		allocate(workdata(n))
+		allocate(selework(ncv))
+		!tol    = 0.0 
+		ido    = 0
+		info   = 0
+		info2=0
+				
+		ishfts = 1
+		maxitr = 300
+		mode   = 3
+		iparam(1) = ishfts 
+		iparam(3) = maxitr 
+		iparam(7) = mode 	 
+		continu=.true.
+		do while(continu)
+			call znaupd(ido,'I',n,'LM',num_of_eig,tol,resid,ncv,v,n,iparam,ipntr,workd,workl,lworkl,rwork,info)
+			if (ido .eq. -1 .or. ido .eq. 1 ) then
+				call zcopy ( n, workd(ipntr(1)),1, workd(ipntr(2)), 1)
+				call zcopy ( n*n, C0,1, C, 1)
+				call ZGESV(n,1,C,n,IPIV2,workd(ipntr(2)),n,info2)
+			else
+				continu=.false.
+			end if
+		end do
+		if(info.ne.0)then
+			write(*,*)"znaupd do not success"
+			write(*,*)info
+			stop
+		end if
+		call zneupd(outvector,'A',selework,d,v,n,s0,workev,'I',n,'LM',num_of_eig,tol,resid,ncv,v,n,iparam,&
+					ipntr,workd,workl,lworkl,rwork,ierr)
+		if(ierr.ne.0)then
+			write(*,*)"zneupd do not success"
+			write(*,*)ierr
+			stop
+		end if
+		if(outvector) then
+			allocate(res_eigvalue)
+			allocate(res_eigenvector)
+			res_eigvalue%Ten=d(1:num_of_eig)
+			res_eigenvector%Ten=v(:,1:num_of_eig)
+			call push_back(resultlink,res_eigvalue)
+			call push_back(resultlink,res_eigenvector)
+		else
+			allocate(res_eigvalue)
+			res_eigvalue%Ten=d(1:num_of_eig)
+			call push_back(resultlink,res_eigvalue)
+		end if
+		
+		return
+	end function
+	function eigen2(T,s0,num_of_eig,ncv,outvector_) result(resultlink)
+	 	type(Tensorlink)::resultlink
+		type(Tensor),intent(in)::T
+		complex*16,intent(in)::s0
+		real*8::tol
+		integer,intent(in)::num_of_eig,ncv
+		logical,optional,intent(in)::outvector_
+		logical::outvector
+		if(present(outvector_))then
+			outvector=outvector_
+		else
+			outvector=.false.
+		end if
+		tol= 0.0
+		resultlink=eigen1(T,s0,num_of_eig,ncv,tol,outvector)
+	end function
+	 function eigen3(T,s0,num_of_eig,outvector_) result(resultlink)
+	 	type(Tensorlink)::resultlink
+		type(Tensor),intent(in)::T
+		complex*16,intent(in)::s0
+		integer,intent(in)::num_of_eig
+		integer::n,ncv
+		real*8::tol
+		logical,optional,intent(in)::outvector_
+		logical::outvector
+		if(present(outvector_))then
+			outvector=outvector_
+		else
+			outvector=.false.
+		end if
+		n=T.dim.1
+		tol=0.0
+		ncv=(2+num_of_eig+n)/2
+		if(ncv.gt.max_ncv) then
+			ncv=max_ncv
+		end if
+		resultlink=eigen1(T,s0,num_of_eig,ncv,tol,outvector)
+	end function
+!********************************************************
+!		the max of min eigen value
+!		on output,a Tensor link,link:[eigenvalue]->[eigenvector]
+!		link.i.2 is a matrix of eigenvector , and the columns of which is the approximate 
+!	eigenvectors (Ritz vectors) corresponding eigenvalue
+!	ncv number of lonzcos vector	
+!	if outvector=.false. no eigenvectors
+!				WHICH   Character*2.  (INPUT)
+!          'LM' -> want the NEV eigenvalues of largest magnitude.
+!          'SM' -> want the NEV eigenvalues of smallest magnitude.
+!          'LR' -> want the NEV eigenvalues of largest real part.
+!          'SR' -> want the NEV eigenvalues of smallest real part.
+!          'LI' -> want the NEV eigenvalues of largest imaginary part.
+!          'SI' -> want the NEV eigenvalues of smallest imaginary part.
+	function eigen_max_min1(T,WHICH,num_of_eig,ncv,tol,outvector_) result(resultlink)
+		type(Tensorlink)::resultlink
+		type(Tensor),intent(in)::T
+		Character*2,intent(in)::WHICH
+		logical,optional,intent(in)::outvector_
+		logical::outvector
+		integer,intent(in)::num_of_eig,ncv
+		complex*16,allocatable::A(:),v(:,:),resid(:),d(:),Cdata(:),workdata(:)
+		complex*16,allocatable::workd(:),workev(:),workl(:)
+		complex*16::s0
+		real*8,intent(in)::tol
+		integer::ido,info,ishfts,maxitr,mode,iparam(11), ipntr(14)
+		integer,allocatable::ipiv(:)
+		logical::continu
+		real*8,allocatable::rwork(:)
+		logical,allocatable::selework(:)
+		integer,allocatable::IPIV2(:)
+		integer::icouter,info2
+		integer::i,j,n,lworkl,ierr
+		type(Tensornode),pointer::res_eigvalue,res_eigenvector
+		
+		if(getRank(T).ne.2) then
+			write(*,*)"ERROR in dimension of input Tensor,eigen"
+			write(*,*)"stop"
+			stop
+		end if
+		n=T.dim.1
+		if(n.ne.(T.dim.2)) then
+		   write(*,*)"ERROR in dimension of input Tensor,eigen"
+		   write(*,*)"Should be a matrix of n * n"
+			write(*,*)"stop"
+			stop
+		end if
+		if(present(outvector_))then
+			outvector=outvector_
+		else
+			outvector=.false.
+		end if
+     call cleanlink(resultlink)
+      
+      lworkl = 3*ncv**2+5*ncv
+		allocate(workd(3*n))
+		allocate(workev(2*ncv))
+		allocate(workl(lworkl))
+		allocate(ipiv(n))
+		allocate(rwork(ncv))
+		allocate(v(n,ncv))
+		allocate(resid(n))
+		allocate(d(num_of_eig+1))
+		allocate(IPIV2(n))
+		allocate(workdata(n))
+		allocate(selework(ncv))
+		!tol    = 0.0 
+		ido    = 0
+		info   = 0
+		info2=0
+				
+				
+		ishfts = 1
+		maxitr = 300
+		mode   = 1
+		iparam(1) = ishfts 
+		iparam(3) = maxitr 
+		iparam(7) = mode 	 
+		continu=.true.
+		
+		do while(continu)
+			call znaupd(ido,'I',n,WHICH,num_of_eig,tol,resid,ncv,v,n,iparam,ipntr,workd,workl,lworkl,rwork,info)
+			if (ido .eq. -1 .or. ido .eq. 1 ) then
+				call ZGEMV('N',n,n,dcmplx(1d0,0d0),T%Tensor_Data,n,workd(ipntr(1):ipntr(1)+n-1),&
+						1,dcmplx(0d0,0d0),workd(ipntr(2):ipntr(2)+n-1),1)
+			else
+				continu=.false.
+			end if
+		end do
+		if(info.ne.0)then
+			write(*,*)"znaupd do not success"
+			write(*,*)info
+			stop
+		end if
+		call zneupd(outvector,'A',selework,d,v,n,s0,workev,'I',n,WHICH,num_of_eig,tol,resid,ncv,v,n,iparam,&
+						ipntr,workd,workl,lworkl,rwork,ierr)
+		if(ierr.ne.0)then
+			write(*,*)"zneupd do not success"
+			write(*,*)ierr
+			stop
+		end if
+		if(outvector) then
+			allocate(res_eigvalue)
+			allocate(res_eigenvector)
+			res_eigvalue%Ten=d(1:num_of_eig)
+			res_eigenvector%Ten=v(:,1:num_of_eig)
+			call push_back(resultlink,res_eigvalue)
+			call push_back(resultlink,res_eigenvector)
+		else
+			allocate(res_eigvalue)
+			res_eigvalue%Ten=d(1:num_of_eig)
+			call push_back(resultlink,res_eigvalue)
+		end if
+		return
+	end function
+	function eigen_max_min2(T,WHICH,num_of_eig,ncv,outvector_)  result(resultlink)
+		type(Tensorlink)::resultlink
+		type(Tensor),intent(in)::T
+		Character*2,intent(in)::WHICH
+		integer,intent(in)::num_of_eig,ncv
+		real*8::tol
+		logical,optional,intent(in)::outvector_
+		logical::outvector
+		if(present(outvector_))then
+			outvector=outvector_
+		else
+			outvector=.false.
+		end if
+		tol=0.0
+		resultlink=eigen_max_min1(T,WHICH,num_of_eig,ncv,tol,outvector)
+		return
+	end function
+	function eigen_max_min3(T,WHICH,num_of_eig,outvector_)  result(resultlink)
+		type(Tensorlink)::resultlink
+		type(Tensor),intent(in)::T
+		Character*2,intent(in)::WHICH
+		integer,intent(in)::num_of_eig
+		integer::n,ncv
+		real*8::tol
+		logical,optional,intent(in)::outvector_
+		logical::outvector
+		if(present(outvector_))then
+			outvector=outvector_
+		else
+			outvector=.false.
+		end if
+		n=T.dim.1
+		tol=0.0
+		ncv=(2+num_of_eig+n)/2
+		if(ncv.gt.max_ncv) then
+			ncv=max_ncv
+		end if
+		resultlink=eigen_max_min1(T,WHICH,num_of_eig,ncv,tol,outvector)
+		return
+	end function
+!********************************************************
+!		eigen value near some value, say s0
+!		on output,a array of Tensor:[eigenvalue]->[eigenvector]
+!		res(2) is a matrix of eigenvector , and the columns of which is the approximate 
+!	eigenvectors (Ritz vectors) corresponding eigenvalue
+!	ncv number of lonzcos vector
+!	if outvector=.false. no eigenvectors
+	 function eigen_array1(T,s0,num_of_eig,ncv,tol,outvector_) result(res)
+	 	type(Tensor),allocatable::res(:)
+		type(Tensor),intent(in)::T
+		complex*16,intent(in)::s0
+		integer,intent(in)::num_of_eig,ncv
+		real*8,intent(in)::tol
+		logical,optional,intent(in)::outvector_
+		logical::outvector
+		complex*16,allocatable::A(:),v(:,:),resid(:),d(:),Cdata(:),workdata(:)
+		complex*16,allocatable::workd(:),workev(:),workl(:)
+		
+		integer::ido,info,ishfts,maxitr,mode,iparam(11), ipntr(14)
+		integer,allocatable::ipiv(:)
+		logical::continu
+		real*8,allocatable::rwork(:)
+		logical,allocatable::selework(:)
+		integer,allocatable::IPIV2(:)
+		integer::icouter,info2
+		complex*16,allocatable::C0(:,:),C(:,:)
+		integer::i,j,n,lworkl,ierr
+		if(getRank(T).ne.2) then
+			write(*,*)"ERROR in dimension of input Tensor,eigen"
+			write(*,*)"stop"
+			stop
+		end if
+		n=T.dim.1
+		if(n.ne.(T.dim.2)) then
+		   write(*,*)"ERROR in dimension of input Tensor,eigen"
+		   write(*,*)"Should be a matrix of n * n"
+			write(*,*)"stop"
+			stop
+		end if
+		if(present(outvector_))then
+			outvector=outvector_
+		else
+			outvector=.false.
+		end if
+	   allocate(C0(n,n))
+	   C0=0.
+	   do i=1,n
+			C0(i,i)=s0
+	   end do
+	   C=T
+	   C0=C-C0
+      lworkl = 3*ncv**2+5*ncv
+		allocate(workd(3*n))
+		allocate(workev(2*ncv))
+		allocate(workl(lworkl))
+		allocate(ipiv(n))
+		allocate(rwork(ncv))
+		allocate(v(n,ncv))
+		allocate(resid(n))
+		allocate(d(num_of_eig+1))
+		allocate(IPIV2(n))
+		allocate(workdata(n))
+		allocate(selework(ncv))
+		!tol    = 0.0 
+		ido    = 0
+		info   = 0
+		info2=0
+				
+		ishfts = 1
+		maxitr = 300
+		mode   = 3
+		iparam(1) = ishfts 
+		iparam(3) = maxitr 
+		iparam(7) = mode 	 
+		continu=.true.
+		do while(continu)
+			call znaupd(ido,'I',n,'LM',num_of_eig,tol,resid,ncv,v,n,iparam,ipntr,workd,workl,lworkl,rwork,info)
+			if (ido .eq. -1 .or. ido .eq. 1 ) then
+				call zcopy ( n, workd(ipntr(1)),1, workd(ipntr(2)), 1)
+				call zcopy ( n*n, C0,1, C, 1)
+				call ZGESV(n,1,C,n,IPIV2,workd(ipntr(2)),n,info2)
+			else
+				continu=.false.
+			end if
+		end do
+		if(info.ne.0)then
+			write(*,*)"znaupd do not success"
+			write(*,*)info
+			stop
+		end if
+		call zneupd(outvector,'A',selework,d,v,n,s0,workev,'I',n,'LM',num_of_eig,tol,resid,ncv,v,n,iparam,&
+					ipntr,workd,workl,lworkl,rwork,ierr)
+		if(ierr.ne.0)then
+			write(*,*)"zneupd do not success"
+			write(*,*)ierr
+			stop
+		end if
+		if(outvector) then
+			allocate(res(2))
+			res(1)=d(1:num_of_eig)
+			res(2)=v(:,1:num_of_eig)
+		else
+			allocate(res(1))
+			res(1)=d(1:num_of_eig)
+		end if
+		return
+	end function
+	function eigen_array2(T,s0,num_of_eig,ncv,outvector_) result(res)
+	 	type(Tensor),allocatable::res(:)
+		type(Tensor),intent(in)::T
+		complex*16,intent(in)::s0
+		real*8::tol
+		integer,intent(in)::num_of_eig,ncv
+		logical,optional,intent(in)::outvector_
+		logical::outvector
+		if(present(outvector_))then
+			outvector=outvector_
+			allocate(res(2))
+		else
+			outvector=.false.
+			allocate(res(1))
+		end if
+		tol= 0.0
+		res=eigen_array1(T,s0,num_of_eig,ncv,tol,outvector)
+	end function
+	 function eigen_array3(T,s0,num_of_eig,outvector_) result(res)
+	 	type(Tensor),allocatable::res(:)
+		type(Tensor),intent(in)::T
+		complex*16,intent(in)::s0
+		integer,intent(in)::num_of_eig
+		logical,optional,intent(in)::outvector_
+		logical::outvector
+		integer::n,ncv
+		real*8::tol
+		n=T.dim.1
+		if(present(outvector_))then
+			outvector=outvector_
+			allocate(res(2))
+		else
+			outvector=.false.
+			allocate(res(1))
+		end if
+		tol=0.0
+		ncv=(2+num_of_eig+n)/2
+		if(ncv.gt.max_ncv) then
+			ncv=max_ncv
+		end if
+		res=eigen_array1(T,s0,num_of_eig,ncv,tol,outvector)
+	end function
+!********************************************************
+!		the max of min eigen value
+!		on output,a array of Tensors:[eigenvalue]->[eigenvector]
+!		res(2) is a matrix of eigenvector , and the columns of which is the approximate 
+!	eigenvectors (Ritz vectors) corresponding eigenvalue
+!	ncv number of lonzcos vector	
+!	if outvector=.false. no eigenvectors
+!				WHICH   Character*2.  (INPUT)
+!          'LM' -> want the NEV eigenvalues of largest magnitude.
+!          'SM' -> want the NEV eigenvalues of smallest magnitude.
+!          'LR' -> want the NEV eigenvalues of largest real part.
+!          'SR' -> want the NEV eigenvalues of smallest real part.
+!          'LI' -> want the NEV eigenvalues of largest imaginary part.
+!          'SI' -> want the NEV eigenvalues of smallest imaginary part.
+	function eigen_max_min_array1(T,WHICH,num_of_eig,ncv,tol,outvector_) result(res)
+		type(Tensor),allocatable::res(:)
+		type(Tensor),intent(in)::T
+		Character*2,intent(in)::WHICH
+		logical,optional,intent(in)::outvector_
+		integer,intent(in)::num_of_eig,ncv
+		logical::outvector
+		complex*16,allocatable::A(:),v(:,:),resid(:),d(:),Cdata(:),workdata(:)
+		complex*16,allocatable::workd(:),workev(:),workl(:)
+		complex*16::s0
+		real*8,intent(in)::tol
+		integer::ido,info,ishfts,maxitr,mode,iparam(11), ipntr(14)
+		integer,allocatable::ipiv(:)
+		logical::continu
+		real*8,allocatable::rwork(:)
+		logical,allocatable::selework(:)
+		integer,allocatable::IPIV2(:)
+		integer::icouter,info2
+		integer::i,j,n,lworkl,ierr
+		
+		if(getRank(T).ne.2) then
+			write(*,*)"ERROR in dimension of input Tensor,eigen"
+			write(*,*)"stop"
+			stop
+		end if
+		n=T.dim.1
+		if(n.ne.(T.dim.2)) then
+		   write(*,*)"ERROR in dimension of input Tensor,eigen"
+		   write(*,*)"Should be a matrix of n * n"
+			write(*,*)"stop"
+			stop
+		end if
+		if(present(outvector_))then
+			outvector=outvector_
+		else
+			outvector=.false.
+		end if
+      
+      lworkl = 3*ncv**2+5*ncv
+		allocate(workd(3*n))
+		allocate(workev(2*ncv))
+		allocate(workl(lworkl))
+		allocate(ipiv(n))
+		allocate(rwork(ncv))
+		allocate(v(n,ncv))
+		allocate(resid(n))
+		allocate(d(num_of_eig+1))
+		allocate(IPIV2(n))
+		allocate(workdata(n))
+		allocate(selework(ncv))
+		!tol    = 0.0 
+		ido    = 0
+		info   = 0
+		info2=0
+				
+				
+		ishfts = 1
+		maxitr = 300
+		mode   = 1
+		iparam(1) = ishfts 
+		iparam(3) = maxitr 
+		iparam(7) = mode 	 
+		continu=.true.
+		
+		do while(continu)
+			call znaupd(ido,'I',n,WHICH,num_of_eig,tol,resid,ncv,v,n,iparam,ipntr,workd,workl,lworkl,rwork,info)
+			if (ido .eq. -1 .or. ido .eq. 1 ) then
+				call ZGEMV('N',n,n,dcmplx(1d0,0d0),T%Tensor_Data,n,workd(ipntr(1):ipntr(1)+n-1),&
+						1,dcmplx(0d0,0d0),workd(ipntr(2):ipntr(2)+n-1),1)
+			else
+				continu=.false.
+			end if
+		end do
+		if(info.ne.0)then
+			write(*,*)"znaupd do not success"
+			write(*,*)info
+			stop
+		end if
+		call zneupd(outvector,'A',selework,d,v,n,s0,workev,'I',n,WHICH,num_of_eig,tol,resid,ncv,v,n,iparam,&
+						ipntr,workd,workl,lworkl,rwork,ierr)
+		if(ierr.ne.0)then
+			write(*,*)"zneupd do not success"
+			write(*,*)ierr
+			stop
+		end if
+		if(outvector) then
+			allocate(res(2))
+			res(1)=d(1:num_of_eig)
+			res(2)=v(:,1:num_of_eig)
+		else
+			allocate(res(1))
+			res(1)=d(1:num_of_eig)
+		end if
+		return
+	end function
+	function eigen_max_min_array2(T,WHICH,num_of_eig,ncv,outvector_)  result(res)
+		type(Tensor),allocatable::res(:)
+		type(Tensor),intent(in)::T
+		Character*2,intent(in)::WHICH
+		integer,intent(in)::num_of_eig,ncv
+		real*8::tol
+		logical,optional,intent(in)::outvector_
+		logical::outvector
+		if(present(outvector_))then
+			outvector=outvector_
+			allocate(res(2))
+		else
+			outvector=.false.
+			allocate(res(1))
+		end if
+		tol=0.0
+		res=eigen_max_min_array1(T,WHICH,num_of_eig,ncv,tol,outvector)
+		return
+	end function
+	function eigen_max_min_array3(T,WHICH,num_of_eig,outvector_)  result(res)
+		type(Tensor),allocatable::res(:)
+		type(Tensor),intent(in)::T
+		Character*2,intent(in)::WHICH
+		integer,intent(in)::num_of_eig
+		logical,optional,intent(in)::outvector_
+		logical::outvector
+		integer::n,ncv
+		real*8::tol
+		if(present(outvector_))then
+			outvector=outvector_
+			allocate(res(2))
+		else
+			outvector=.false.
+			allocate(res(1))
+		end if
+		n=T.dim.1
+		tol=0.0
+		ncv=(2+num_of_eig+n)/2
+		if(ncv.gt.max_ncv) then
+			ncv=max_ncv
+		end if
+		res=eigen_max_min_array1(T,WHICH,num_of_eig,ncv,tol,outvector)
+		return
+	end function
+!***********************************************************************************
+!***********************************************************************************
+!
+!             The User should provide the subroutine of matrix prduct vector
+!             The subroutine should be look like:
+!                            call H_phi(H,phi)
+!             where H is the Hamiltanion and phi is the state
+!
+!***********************************************************************************
+!		the max of min eigen value
+!		on output,a Tensor link,link:[eigenvalue]->[eigenvector]
+!		link.i.2 is a matrix of eigenvector , and the columns of which is the approximate 
+!	eigenvectors (Ritz vectors) corresponding eigenvalue
+!	ncv number of lonzcos vector	
+!	if outvector=.false. no eigenvectors
+!				WHICH   Character*2.  (INPUT)
+!          'LM' -> want the NEV eigenvalues of largest magnitude.
+!          'SM' -> want the NEV eigenvalues of smallest magnitude.
+!          'LR' -> want the NEV eigenvalues of largest real part.
+!          'SR' -> want the NEV eigenvalues of smallest real part.
+!          'LI' -> want the NEV eigenvalues of largest imaginary part.
+!          'SI' -> want the NEV eigenvalues of smallest imaginary part.
+!	ncv:Number of Lanczos vectors to be generated.
+!	n the dimension of H
+!	maxitr:number of running
+	function eigenvalue_H_phi1(H_phi,H,dimension_of_phi,WHICH,num_of_eig,ncv,tol,maxitr,outvector_) result(resultlink)
+		type(Tensorlink)::resultlink
+		type(Tensorlink),intent(in)::H
+		external::H_phi
+		Character*2,intent(in)::WHICH
+		logical,optional,intent(in)::outvector_
+		logical::outvector
+		integer,intent(in)::num_of_eig,ncv,maxitr
+		type(Dimension),intent(inout)::dimension_of_phi
+		real*8,intent(in)::tol
+		complex*16,allocatable::A(:),v(:,:),resid(:),d(:),Cdata(:),workdata(:)
+		complex*16,allocatable::workd(:),workev(:),workl(:)
+		complex*16::s0
+		integer::ido,info,ishfts,mode,iparam(11), ipntr(14)
+		integer,allocatable::ipiv(:)
+		logical::continu
+		real*8,allocatable::rwork(:)
+		logical,allocatable::selework(:)
+		integer,allocatable::IPIV2(:)
+		integer::icouter,info2
+		integer::i,j,n,lworkl,ierr
+		type(Tensornode),pointer::res_eigvalue,res_eigenvector
+		type(Tensor)::phi
+		if(present(outvector_))then
+			outvector=outvector_
+		else
+			outvector=.false.
+		end if
+		call cleanlink(resultlink)
+		call allocateTensor(phi,dimension_of_phi)
+      n=outtotalData(dimension_of_phi)
+      lworkl = 3*ncv**2+5*ncv
+		allocate(workd(3*n))
+		allocate(workev(2*ncv))
+		allocate(workl(lworkl))
+		allocate(ipiv(n))
+		allocate(rwork(ncv))
+		allocate(v(n,ncv))
+		allocate(resid(n))
+		allocate(d(num_of_eig+1))
+		allocate(IPIV2(n))
+		allocate(workdata(n))
+		allocate(selework(ncv))
+		!tol    = 0.0
+		ido    = 0
+		info   = 0
+		info2=0
+				
+				
+		ishfts = 1
+		mode   = 1
+		iparam(1) = ishfts 
+		iparam(3) = maxitr 
+		iparam(7) = mode 	 
+		continu=.true.
+		do while(continu)
+			call znaupd(ido,'I',n,WHICH,num_of_eig,tol,resid,ncv,v,n,iparam,ipntr,workd,workl,lworkl,rwork,info)
+			if (ido .eq. -1 .or. ido .eq. 1 ) then
+				!phi=buildTen(dimH,workd(ipntr(1):ipntr(1)+n-1))
+				phi%Tensor_Data=workd(ipntr(1):ipntr(1)+n-1)
+				call H_phi(H,phi)
+				do i=0,n-1
+					workd(ipntr(2)+i)=phi%Tensor_Data(i+1)
+				end do
+			else
+				continu=.false.
+			end if
+		end do
+		dimension_of_phi=.subdim.phi
+		if(ido.ne.99)then
+			write(*,*)"znaupd do not success"
+			write(*,*)info
+			stop
+		end if
+		call zneupd(outvector,'A',selework,d,v,n,s0,workev,'I',n,WHICH,num_of_eig,tol,resid,ncv,v,n,iparam,&
+						ipntr,workd,workl,lworkl,rwork,ierr)
+		if(ierr.ne.0)then
+			write(*,*)"zneupd do not success"
+			write(*,*)ierr
+			stop
+		end if
+		if(outvector) then
+			allocate(res_eigvalue)
+			allocate(res_eigenvector)
+			res_eigvalue%Ten=d(1:num_of_eig)
+			res_eigenvector%Ten=v(:,1:num_of_eig)
+			call push_back(resultlink,res_eigvalue)
+			call push_back(resultlink,res_eigenvector)
+		else
+			allocate(res_eigvalue)
+			res_eigvalue%Ten=d(1:num_of_eig)
+			call push_back(resultlink,res_eigvalue)
+		end if
+		return
+	end function
+	function eigenvalue_H_phi2(H_phi,H,dimension_of_phi,WHICH,num_of_eig,outvector_) result(resultlink)
+		type(Tensorlink)::resultlink
+		type(Tensorlink),intent(in)::H
+		Character*2,intent(in)::WHICH
+		external::H_phi
+		logical,optional,intent(in)::outvector_
+		logical::outvector
+		integer,intent(in)::num_of_eig
+		type(Dimension),intent(inout)::dimension_of_phi
+		real*8::tol
+		complex*16,allocatable::A(:),v(:,:),resid(:),d(:),Cdata(:),workdata(:)
+		complex*16,allocatable::workd(:),workev(:),workl(:)
+		complex*16::s0
+		integer::ido,info,ishfts,mode,iparam(11), ipntr(14)
+		integer,allocatable::ipiv(:)
+		logical::continu
+		real*8,allocatable::rwork(:)
+		logical,allocatable::selework(:)
+		integer,allocatable::IPIV2(:)
+		integer::icouter,info2
+		integer::i,j,n,lworkl,ierr,ncv,maxitr
+		type(Tensornode),pointer::res_eigvalue,res_eigenvector
+		type(Tensor)::phi
+		if(present(outvector_))then
+			outvector=outvector_
+		else
+			outvector=.false.
+		end if
+		call cleanlink(resultlink)
+		call allocateTensor(phi,dimension_of_phi)
+      n=outtotalData(dimension_of_phi)
+      ncv=(2+num_of_eig+n)/2
+      if(ncv.gt.max_ncv)then
+      	ncv=max_ncv
+      end if
+      lworkl = 3*ncv**2+5*ncv
+		allocate(workd(3*n))
+		allocate(workev(2*ncv))
+		allocate(workl(lworkl))
+		allocate(ipiv(n))
+		allocate(rwork(ncv))
+		allocate(v(n,ncv))
+		allocate(resid(n))
+		allocate(d(num_of_eig+1))
+		allocate(IPIV2(n))
+		allocate(workdata(n))
+		allocate(selework(ncv))
+		tol    = 0.0
+		ido    = 0
+		info   = 0
+		info2=0
+				
+		maxitr=300
+		ishfts = 1
+		mode   = 1
+		iparam(1) = ishfts 
+		iparam(3) = maxitr 
+		iparam(7) = mode 	 
+		continu=.true.
+		do while(continu)
+			call znaupd(ido,'I',n,WHICH,num_of_eig,tol,resid,ncv,v,n,iparam,ipntr,workd,workl,lworkl,rwork,info)
+			if (ido .eq. -1 .or. ido .eq. 1 ) then
+				phi%Tensor_Data=workd(ipntr(1):ipntr(1)+n-1)
+				call H_phi(H,phi)
+				do i=0,n-1
+					workd(ipntr(2)+i)=phi%Tensor_Data(i+1)
+				end do
+			else
+				continu=.false.
+			end if
+		end do
+		dimension_of_phi=.subdim.phi
+		if(ido.ne.99)then
+			write(*,*)"znaupd do not success"
+			write(*,*)info
+			stop
+		end if
+		call zneupd(outvector,'A',selework,d,v,n,s0,workev,'I',n,WHICH,num_of_eig,tol,resid,ncv,v,n,iparam,&
+						ipntr,workd,workl,lworkl,rwork,ierr)
+		if(ierr.ne.0)then
+			write(*,*)"zneupd do not success"
+			write(*,*)ierr
+			stop
+		end if
+		if(outvector) then
+			allocate(res_eigvalue)
+			allocate(res_eigenvector)
+			res_eigvalue%Ten=d(1:num_of_eig)
+			res_eigenvector%Ten=v(:,1:num_of_eig)
+			call push_back(resultlink,res_eigvalue)
+			call push_back(resultlink,res_eigenvector)
+		else
+			allocate(res_eigvalue)
+			res_eigvalue%Ten=d(1:num_of_eig)
+			call push_back(resultlink,res_eigvalue)
+		end if
+		return
+	end function
+	function eigenvalue_H_phi3(H_phi,H,dimension_of_phi_int,WHICH,num_of_eig,outvector_) result(resultlink)
+		type(Tensorlink)::resultlink
+		type(Tensorlink),intent(in)::H
+		Character*2,intent(in)::WHICH
+		external::H_phi
+		logical,optional,intent(in)::outvector_
+		logical::outvector
+		integer,intent(in)::num_of_eig
+		integer,intent(inout)::dimension_of_phi_int(:)
+		type(Dimension)::dimension_of_phi
+		integer::i
+		dimension_of_phi=dimension_of_phi_int
+		resultlink=eigenvalue_H_phi2(H_phi,H,dimension_of_phi,WHICH,num_of_eig,outvector_)
+		do i=1,size(dimension_of_phi_int)
+			dimension_of_phi_int(i)=dimension_of_phi.i.i
+		end do
+		return
+	end function
+	function eigenvalue_H_phi4(H_phi,H,dimension_of_phi,WHICH,num_of_eig,ncv,outvector) result(resultlink)
+		type(Tensorlink)::resultlink
+		type(Tensorlink),intent(in)::H
+		external::H_phi
+		Character*2,intent(in)::WHICH
+		logical,optional,intent(in)::outvector
+		integer,intent(in)::num_of_eig,ncv
+		type(Dimension),intent(inout)::dimension_of_phi
+		real*8::tol
+		integer::maxitr
+		tol=0.0
+		maxitr=300
+		resultlink=eigenvalue_H_phi1(H_phi,H,dimension_of_phi,WHICH,num_of_eig,ncv,tol,maxitr,outvector)
+		return
+	end function
+	function eigenvalue_H_phi5(H_phi,H,dimension_of_phi_int,WHICH,num_of_eig,ncv,outvector) result(resultlink)
+		type(Tensorlink)::resultlink
+		type(Tensorlink),intent(in)::H
+		external::H_phi
+		Character*2,intent(in)::WHICH
+		logical,optional,intent(in)::outvector
+		integer,intent(in)::num_of_eig,ncv
+		integer,intent(inout)::dimension_of_phi_int(:)
+		type(Dimension)::dimension_of_phi
+		real*8::tol
+		integer::maxitr,i
+		tol=0.0
+		maxitr=300
+		dimension_of_phi=dimension_of_phi_int
+		resultlink=eigenvalue_H_phi1(H_phi,H,dimension_of_phi,WHICH,num_of_eig,ncv,tol,maxitr,outvector)
+		do i=1,size(dimension_of_phi_int)
+			dimension_of_phi_int(i)=dimension_of_phi.i.i
+		end do
+		return
+	end function
+!***********************************************************************************
+!***********************************************************************************
+!
+!             The User should provide the subroutine of matrix prduct vector
+!             The subroutine should be look like:
+!                            call H_phi(phi)
+!             where phi is intent(inout)
+!             H_phi(phi) should be
+!                1. if(.not.getfalg(phi)) initial phi
+!                2. if(getfalg(phi)) phi=H*phi
+!
+!***********************************************************************************
+!		the max of min eigen value
+!		on output,a Tensor link,link:[eigenvalue]->[eigenvector]
+!		link.i.2 is a matrix of eigenvector , and the columns of which is the approximate 
+!	eigenvectors (Ritz vectors) corresponding eigenvalue
+!	ncv number of lonzcos vector	
+!	if outvector=.false. no eigenvectors
+!				WHICH   Character*2.  (INPUT)
+!          'LM' -> want the NEV eigenvalues of largest magnitude.
+!          'SM' -> want the NEV eigenvalues of smallest magnitude.
+!          'LR' -> want the NEV eigenvalues of largest real part.
+!          'SR' -> want the NEV eigenvalues of smallest real part.
+!          'LI' -> want the NEV eigenvalues of largest imaginary part.
+!          'SI' -> want the NEV eigenvalues of smallest imaginary part.
+!	ncv:Number of Lanczos vectors to be generated.
+!	n the dimension of H
+!	maxitr:number of running
+	function eigenvalue_H_phi21(H_phi,WHICH,num_of_eig,ncv,tol,maxitr,outvector_) result(resultlink)
+		type(Tensorlink)::resultlink
+		external::H_phi
+		Character*2,intent(in)::WHICH
+		logical,optional,intent(in)::outvector_
+		logical::outvector
+		integer,intent(in)::num_of_eig,ncv,maxitr
+		real*8,intent(in)::tol
+		complex*16,allocatable::A(:),v(:,:),resid(:),d(:),Cdata(:),workdata(:)
+		complex*16,allocatable::workd(:),workev(:),workl(:)
+		complex*16::s0
+		integer::ido,info,ishfts,mode,iparam(11), ipntr(14)
+		integer,allocatable::ipiv(:)
+		logical::continu
+		real*8,allocatable::rwork(:)
+		logical,allocatable::selework(:)
+		integer,allocatable::IPIV2(:)
+		integer::icouter,info2
+		integer::i,j,n,lworkl,ierr
+		type(Tensornode),pointer::res_eigvalue,res_eigenvector
+		type(Tensor)::phi
+		if(present(outvector_))then
+			outvector=outvector_
+		else
+			outvector=.false.
+		end if
+		call cleanlink(resultlink)
+		call emptyTensor(phi)
+		call H_phi(phi)
+      n=getTotalData(phi)
+      lworkl = 3*ncv**2+5*ncv
+		allocate(workd(3*n))
+		allocate(workev(2*ncv))
+		allocate(workl(lworkl))
+		allocate(ipiv(n))
+		allocate(rwork(ncv))
+		allocate(v(n,ncv))
+		allocate(resid(n))
+		allocate(d(num_of_eig+1))
+		allocate(IPIV2(n))
+		allocate(workdata(n))
+		allocate(selework(ncv))
+		!tol    = 0.0
+		ido    = 0
+		info   = 0
+		info2=0
+				
+				
+		ishfts = 1
+		mode   = 1
+		iparam(1) = ishfts 
+		iparam(3) = maxitr 
+		iparam(7) = mode 	 
+		continu=.true.
+		do while(continu)
+			call znaupd(ido,'I',n,WHICH,num_of_eig,tol,resid,ncv,v,n,iparam,ipntr,workd,workl,lworkl,rwork,info)
+			if (ido .eq. -1 .or. ido .eq. 1 ) then
+				!phi=buildTen(dimH,workd(ipntr(1):ipntr(1)+n-1))
+				phi%Tensor_Data=workd(ipntr(1):ipntr(1)+n-1)
+				call H_phi(phi)
+				do i=0,n-1
+					workd(ipntr(2)+i)=phi%Tensor_Data(i+1)
+				end do
+			else
+				continu=.false.
+			end if
+		end do
+		if(ido.ne.99)then
+			write(*,*)"znaupd do not success"
+			write(*,*)info
+			stop
+		end if
+		call zneupd(outvector,'A',selework,d,v,n,s0,workev,'I',n,WHICH,num_of_eig,tol,resid,ncv,v,n,iparam,&
+						ipntr,workd,workl,lworkl,rwork,ierr)
+		if(ierr.ne.0)then
+			write(*,*)"zneupd do not success"
+			write(*,*)ierr
+			stop
+		end if
+		if(outvector) then
+			allocate(res_eigvalue)
+			allocate(res_eigenvector)
+			res_eigvalue%Ten=d(1:num_of_eig)
+			res_eigenvector%Ten=v(:,1:num_of_eig)
+			call push_back(resultlink,res_eigvalue)
+			call push_back(resultlink,res_eigenvector)
+		else
+			allocate(res_eigvalue)
+			res_eigvalue%Ten=d(1:num_of_eig)
+			call push_back(resultlink,res_eigvalue)
+		end if
+		return
+	end function
+	function eigenvalue_H_phi22(H_phi,WHICH,num_of_eig,outvector_) result(resultlink)
+		type(Tensorlink)::resultlink
+		Character*2,intent(in)::WHICH
+		external::H_phi
+		logical,optional,intent(in)::outvector_
+		logical::outvector
+		integer,intent(in)::num_of_eig
+		real*8::tol
+		complex*16,allocatable::A(:),v(:,:),resid(:),d(:),Cdata(:),workdata(:)
+		complex*16,allocatable::workd(:),workev(:),workl(:)
+		complex*16::s0
+		integer::ido,info,ishfts,mode,iparam(11), ipntr(14)
+		integer,allocatable::ipiv(:)
+		logical::continu
+		real*8,allocatable::rwork(:)
+		logical,allocatable::selework(:)
+		integer,allocatable::IPIV2(:)
+		integer::icouter,info2
+		integer::i,j,n,lworkl,ierr,ncv,maxitr
+		type(Tensornode),pointer::res_eigvalue,res_eigenvector
+		type(Tensor)::phi
+		if(present(outvector_))then
+			outvector=outvector_
+		else
+			outvector=.false.
+		end if
+		call cleanlink(resultlink)
+		call emptyTensor(phi)
+		call H_phi(phi)
+      n=getTotalData(phi)
+      ncv=(2+num_of_eig+n)/2
+      if(ncv.gt.max_ncv)then
+      	ncv=max_ncv
+      end if
+      lworkl = 3*ncv**2+5*ncv
+		allocate(workd(3*n))
+		allocate(workev(2*ncv))
+		allocate(workl(lworkl))
+		allocate(ipiv(n))
+		allocate(rwork(ncv))
+		allocate(v(n,ncv))
+		allocate(resid(n))
+		allocate(d(num_of_eig+1))
+		allocate(IPIV2(n))
+		allocate(workdata(n))
+		allocate(selework(ncv))
+		tol    = 0.0
+		ido    = 0
+		info   = 0
+		info2=0
+				
+		maxitr=300
+		ishfts = 1
+		mode   = 1
+		iparam(1) = ishfts 
+		iparam(3) = maxitr 
+		iparam(7) = mode 	 
+		continu=.true.
+		do while(continu)
+			call znaupd(ido,'I',n,WHICH,num_of_eig,tol,resid,ncv,v,n,iparam,ipntr,workd,workl,lworkl,rwork,info)
+			if (ido .eq. -1 .or. ido .eq. 1 ) then
+				phi%Tensor_Data=workd(ipntr(1):ipntr(1)+n-1)
+				call H_phi(phi)
+				do i=0,n-1
+					workd(ipntr(2)+i)=phi%Tensor_Data(i+1)
+				end do
+			else
+				continu=.false.
+			end if
+		end do
+		if(ido.ne.99)then
+			write(*,*)"znaupd do not success"
+			write(*,*)info
+			stop
+		end if
+		call zneupd(outvector,'A',selework,d,v,n,s0,workev,'I',n,WHICH,num_of_eig,tol,resid,ncv,v,n,iparam,&
+						ipntr,workd,workl,lworkl,rwork,ierr)
+		if(ierr.ne.0)then
+			write(*,*)"zneupd do not success"
+			write(*,*)ierr
+			stop
+		end if
+		if(outvector) then
+			allocate(res_eigvalue)
+			allocate(res_eigenvector)
+			res_eigvalue%Ten=d(1:num_of_eig)
+			res_eigenvector%Ten=v(:,1:num_of_eig)
+			call push_back(resultlink,res_eigvalue)
+			call push_back(resultlink,res_eigenvector)
+		else
+			allocate(res_eigvalue)
+			res_eigvalue%Ten=d(1:num_of_eig)
+			call push_back(resultlink,res_eigvalue)
+		end if
+		return
+	end function
+	function eigenvalue_H_phi24(H_phi,WHICH,num_of_eig,ncv,outvector) result(resultlink)
+		type(Tensorlink)::resultlink
+		external::H_phi
+		Character*2,intent(in)::WHICH
+		logical,optional,intent(in)::outvector
+		integer,intent(in)::num_of_eig,ncv
+		real*8::tol
+		integer::maxitr
+		tol=0.0
+		maxitr=300
+		resultlink=eigenvalue_H_phi21(H_phi,WHICH,num_of_eig,ncv,tol,maxitr,outvector)
+		return
+	end function
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+		
+!The same with eigenvalue_H_phi1,but input and output are array not a Tensorlink
+	function eigenvalue_H_phi_array1(H_phi,H,dimension_of_phi,WHICH,num_of_eig,ncv,tol,maxitr,outvector_) result(res)
+		type(Tensor),allocatable::res(:)
+		type(Tensor),intent(in)::H(:)
+		external::H_phi
+		Character*2,intent(in)::WHICH
+		logical,optional,intent(in)::outvector_
+		logical::outvector
+		integer,intent(in)::num_of_eig,ncv,maxitr
+		type(Dimension),intent(inout)::dimension_of_phi
+		real*8,intent(in)::tol
+		complex*16,allocatable::A(:),v(:,:),resid(:),d(:),Cdata(:),workdata(:)
+		complex*16,allocatable::workd(:),workev(:),workl(:)
+		complex*16::s0
+		integer::ido,info,ishfts,mode,iparam(11), ipntr(14)
+		integer,allocatable::ipiv(:)
+		logical::continu
+		real*8,allocatable::rwork(:)
+		logical,allocatable::selework(:)
+		integer,allocatable::IPIV2(:)
+		integer::icouter,info2
+		integer::i,j,n,lworkl,ierr
+		type(Tensor)::phi
+		if(present(outvector_))then
+			outvector=outvector_
+		else
+			outvector=.false.
+		end if
+      call allocateTensor(phi,dimension_of_phi)
+      n=outtotalData(dimension_of_phi)
+      lworkl = 3*ncv**2+5*ncv
+		allocate(workd(3*n))
+		allocate(workev(2*ncv))
+		allocate(workl(lworkl))
+		allocate(ipiv(n))
+		allocate(rwork(ncv))
+		allocate(v(n,ncv))
+		allocate(resid(n))
+		allocate(d(num_of_eig+1))
+		allocate(IPIV2(n))
+		allocate(workdata(n))
+		allocate(selework(ncv))
+		!tol    = 0.0
+		ido    = 0
+		info   = 0
+		info2=0
+				
+				
+		ishfts = 1
+		mode   = 1
+		iparam(1) = ishfts 
+		iparam(3) = maxitr 
+		iparam(7) = mode 	 
+		continu=.true.
+		do while(continu)
+			call znaupd(ido,'I',n,WHICH,num_of_eig,tol,resid,ncv,v,n,iparam,ipntr,workd,workl,lworkl,rwork,info)
+			if (ido .eq. -1 .or. ido .eq. 1 ) then
+				!phi=buildTen(dimH,workd(ipntr(1):ipntr(1)+n-1))
+				phi%Tensor_Data=workd(ipntr(1):ipntr(1)+n-1)
+				call H_phi(H,phi)
+				do i=0,n-1
+					workd(ipntr(2)+i)=phi%Tensor_Data(i+1)
+				end do
+			else
+				continu=.false.
+			end if
+		end do
+		dimension_of_phi=.subdim.phi
+		if(ido.ne.99)then
+			write(*,*)"znaupd do not success"
+			write(*,*)info
+			stop
+		end if
+		call zneupd(outvector,'A',selework,d,v,n,s0,workev,'I',n,WHICH,num_of_eig,tol,resid,ncv,v,n,iparam,&
+						ipntr,workd,workl,lworkl,rwork,ierr)
+		if(ierr.ne.0)then
+			write(*,*)"zneupd do not success"
+			write(*,*)ierr
+			stop
+		end if
+		if(outvector) then
+			allocate(res(2))
+			res(1)=d(1:num_of_eig)
+			res(2)=v(:,1:num_of_eig)
+		else
+			allocate(res(1))
+			res(1)=d(1:num_of_eig)
+		end if
+		return
+	end function
+	function eigenvalue_H_phi_array2(H_phi,H,dimension_of_phi,WHICH,num_of_eig,outvector_) result(res)
+		type(Tensor),allocatable::res(:)
+		type(Tensor),intent(in)::H(:)
+		Character*2,intent(in)::WHICH
+		external::H_phi
+		logical,optional,intent(in)::outvector_
+		logical::outvector
+		integer,intent(in)::num_of_eig
+		type(Dimension),intent(inout)::dimension_of_phi
+		real*8::tol
+		complex*16,allocatable::A(:),v(:,:),resid(:),d(:),Cdata(:),workdata(:)
+		complex*16,allocatable::workd(:),workev(:),workl(:)
+		complex*16::s0
+		integer::ido,info,ishfts,mode,iparam(11), ipntr(14)
+		integer,allocatable::ipiv(:)
+		logical::continu
+		real*8,allocatable::rwork(:)
+		logical,allocatable::selework(:)
+		integer,allocatable::IPIV2(:)
+		integer::icouter,info2
+		integer::i,j,n,lworkl,ierr,ncv,maxitr
+		type(Tensor)::phi
+		if(present(outvector_))then
+			outvector=outvector_
+		else
+			outvector=.false.
+		end if
+     call allocateTensor(phi,dimension_of_phi)
+      n=outtotalData(dimension_of_phi)
+      ncv=(2+num_of_eig+n)/2
+      if(ncv.gt.max_ncv)then
+      	ncv=max_ncv
+      end if
+      lworkl = 3*ncv**2+5*ncv
+		allocate(workd(3*n))
+		allocate(workev(2*ncv))
+		allocate(workl(lworkl))
+		allocate(ipiv(n))
+		allocate(rwork(ncv))
+		allocate(v(n,ncv))
+		allocate(resid(n))
+		allocate(d(num_of_eig+1))
+		allocate(IPIV2(n))
+		allocate(workdata(n))
+		allocate(selework(ncv))
+		tol    = 0.0
+		ido    = 0
+		info   = 0
+		info2=0
+				
+		maxitr=300
+		ishfts = 1
+		mode   = 1
+		iparam(1) = ishfts 
+		iparam(3) = maxitr 
+		iparam(7) = mode 	 
+		continu=.true.
+		do while(continu)
+			call znaupd(ido,'I',n,WHICH,num_of_eig,tol,resid,ncv,v,n,iparam,ipntr,workd,workl,lworkl,rwork,info)
+			if (ido .eq. -1 .or. ido .eq. 1 ) then
+				!phi=buildTen(dimH,workd(ipntr(1):ipntr(1)+n-1))
+				phi%Tensor_Data=workd(ipntr(1):ipntr(1)+n-1)
+				call H_phi(H,phi)
+				do i=0,n-1
+					workd(ipntr(2)+i)=phi%Tensor_Data(i+1)
+				end do
+			else
+				continu=.false.
+			end if
+		end do
+		dimension_of_phi=.subdim.phi
+		if(ido.ne.99)then
+			write(*,*)"znaupd do not success"
+			write(*,*)info
+			stop
+		end if
+		call zneupd(outvector,'A',selework,d,v,n,s0,workev,'I',n,WHICH,num_of_eig,tol,resid,ncv,v,n,iparam,&
+						ipntr,workd,workl,lworkl,rwork,ierr)
+		if(ierr.ne.0)then
+			write(*,*)"zneupd do not success"
+			write(*,*)ierr
+			stop
+		end if
+		if(outvector) then
+			allocate(res(2))
+			res(1)=d(1:num_of_eig)
+			res(2)=v(:,1:num_of_eig)
+		else
+			allocate(res(1))
+			res(1)=d(1:num_of_eig)
+		end if
+		return
+	end function
+	function eigenvalue_H_phi_array3(H_phi,H,dimension_of_phi_int,WHICH,num_of_eig,outvector) result(res)
+		type(Tensor),allocatable::res(:)
+		type(Tensor),intent(in)::H(:)
+		Character*2,intent(in)::WHICH
+		external::H_phi
+		logical,optional,intent(in)::outvector
+		integer,intent(in)::num_of_eig
+		integer,intent(inout)::dimension_of_phi_int(:)
+		type(Dimension)::dimension_of_phi
+		integer::i
+		dimension_of_phi=dimension_of_phi_int
+		if(present(outvector))then
+			allocate(res(2))
+		else
+			allocate(res(1))
+		end if
+		res=eigenvalue_H_phi_array2(H_phi,H,dimension_of_phi,WHICH,num_of_eig,outvector)
+		do i=1,size(dimension_of_phi_int)
+			dimension_of_phi_int(i)=dimension_of_phi.i.i
+		end do
+		return
+	end function
+!***********************************************************************************
+!***********************************************************************************
+!
+!             The User should provide the subroutine of matrix prduct vector
+!             The subroutine should be look like:
+!                            call H_phi(phi)
+!             where phi is intent(inout)
+!             H_phi(phi) should be
+!                1. if(.not.getfalg(phi)) initial phi
+!                2. if(getfalg(phi)) phi=H*phi
+!
+!***********************************************************************************
+!		the max of min eigen value
+!		on output,a Tensor link,link:[eigenvalue]->[eigenvector]
+!		link.i.2 is a matrix of eigenvector , and the columns of which is the approximate 
+!	eigenvectors (Ritz vectors) corresponding eigenvalue
+!	ncv number of lonzcos vector	
+!	if outvector=.false. no eigenvectors
+!				WHICH   Character*2.  (INPUT)
+!          'LM' -> want the NEV eigenvalues of largest magnitude.
+!          'SM' -> want the NEV eigenvalues of smallest magnitude.
+!          'LR' -> want the NEV eigenvalues of largest real part.
+!          'SR' -> want the NEV eigenvalues of smallest real part.
+!          'LI' -> want the NEV eigenvalues of largest imaginary part.
+!          'SI' -> want the NEV eigenvalues of smallest imaginary part.
+!	ncv:Number of Lanczos vectors to be generated.
+!	n the dimension of H
+!	maxitr:number of running
+
+function eigenvalue_H_phi_array21(H_phi,WHICH,num_of_eig,ncv,tol,maxitr,outvector_) result(res)
+		type(Tensor),allocatable::res(:)
+		external::H_phi
+		Character*2,intent(in)::WHICH
+		logical,optional,intent(in)::outvector_
+		logical::outvector
+		integer,intent(in)::num_of_eig,ncv,maxitr
+		real*8,intent(in)::tol
+		complex*16,allocatable::A(:),v(:,:),resid(:),d(:),Cdata(:),workdata(:)
+		complex*16,allocatable::workd(:),workev(:),workl(:)
+		complex*16::s0
+		integer::ido,info,ishfts,mode,iparam(11), ipntr(14)
+		integer,allocatable::ipiv(:)
+		logical::continu
+		real*8,allocatable::rwork(:)
+		logical,allocatable::selework(:)
+		integer,allocatable::IPIV2(:)
+		integer::icouter,info2
+		integer::i,j,n,lworkl,ierr
+		type(Tensor)::phi
+		if(present(outvector_))then
+			outvector=outvector_
+		else
+			outvector=.false.
+		end if
+      call emptyTensor(phi)
+		call H_phi(phi)
+      n=getTotalData(phi)
+      lworkl = 3*ncv**2+5*ncv
+		allocate(workd(3*n))
+		allocate(workev(2*ncv))
+		allocate(workl(lworkl))
+		allocate(ipiv(n))
+		allocate(rwork(ncv))
+		allocate(v(n,ncv))
+		allocate(resid(n))
+		allocate(d(num_of_eig+1))
+		allocate(IPIV2(n))
+		allocate(workdata(n))
+		allocate(selework(ncv))
+		!tol    = 0.0
+		ido    = 0
+		info   = 0
+		info2=0
+				
+				
+		ishfts = 1
+		mode   = 1
+		iparam(1) = ishfts 
+		iparam(3) = maxitr 
+		iparam(7) = mode 	 
+		continu=.true.
+		do while(continu)
+			call znaupd(ido,'I',n,WHICH,num_of_eig,tol,resid,ncv,v,n,iparam,ipntr,workd,workl,lworkl,rwork,info)
+			if (ido .eq. -1 .or. ido .eq. 1 ) then
+				!phi=buildTen(dimH,workd(ipntr(1):ipntr(1)+n-1))
+				phi%Tensor_Data=workd(ipntr(1):ipntr(1)+n-1)
+				call H_phi(phi)
+				do i=0,n-1
+					workd(ipntr(2)+i)=phi%Tensor_Data(i+1)
+				end do
+			else
+				continu=.false.
+			end if
+		end do
+		if(ido.ne.99)then
+			write(*,*)"znaupd do not success"
+			write(*,*)info
+			stop
+		end if
+		call zneupd(outvector,'A',selework,d,v,n,s0,workev,'I',n,WHICH,num_of_eig,tol,resid,ncv,v,n,iparam,&
+						ipntr,workd,workl,lworkl,rwork,ierr)
+		if(ierr.ne.0)then
+			write(*,*)"zneupd do not success"
+			write(*,*)ierr
+			stop
+		end if
+		if(outvector) then
+			allocate(res(2))
+			res(1)=d(1:num_of_eig)
+			res(2)=v(:,1:num_of_eig)
+		else
+			allocate(res(1))
+			res(1)=d(1:num_of_eig)
+		end if
+		return
+	end function
+	
+	function eigenvalue_H_phi_array22(H_phi,WHICH,num_of_eig,outvector_) result(res)
+		type(Tensor),allocatable::res(:)
+		Character*2,intent(in)::WHICH
+		external::H_phi
+		logical,optional,intent(in)::outvector_
+		logical::outvector
+		integer,intent(in)::num_of_eig
+		real*8::tol
+		complex*16,allocatable::A(:),v(:,:),resid(:),d(:),Cdata(:),workdata(:)
+		complex*16,allocatable::workd(:),workev(:),workl(:)
+		complex*16::s0
+		integer::ido,info,ishfts,mode,iparam(11), ipntr(14)
+		integer,allocatable::ipiv(:)
+		logical::continu
+		real*8,allocatable::rwork(:)
+		logical,allocatable::selework(:)
+		integer,allocatable::IPIV2(:)
+		integer::icouter,info2
+		integer::i,j,n,lworkl,ierr,ncv,maxitr
+		type(Tensor)::phi
+		if(present(outvector_))then
+			outvector=outvector_
+		else
+			outvector=.false.
+		end if
+      call emptyTensor(phi)
+		call H_phi(phi)
+      n=getTotalData(phi)
+      ncv=(2+num_of_eig+n)/2
+      if(ncv.gt.max_ncv)then
+      	ncv=max_ncv
+      end if
+      lworkl = 3*ncv**2+5*ncv
+		allocate(workd(3*n))
+		allocate(workev(2*ncv))
+		allocate(workl(lworkl))
+		allocate(ipiv(n))
+		allocate(rwork(ncv))
+		allocate(v(n,ncv))
+		allocate(resid(n))
+		allocate(d(num_of_eig+1))
+		allocate(IPIV2(n))
+		allocate(workdata(n))
+		allocate(selework(ncv))
+		tol    = 0.0
+		ido    = 0
+		info   = 0
+		info2=0
+				
+		maxitr=300
+		ishfts = 1
+		mode   = 1
+		iparam(1) = ishfts 
+		iparam(3) = maxitr 
+		iparam(7) = mode 	 
+		continu=.true.
+		do while(continu)
+			call znaupd(ido,'I',n,WHICH,num_of_eig,tol,resid,ncv,v,n,iparam,ipntr,workd,workl,lworkl,rwork,info)
+			if (ido .eq. -1 .or. ido .eq. 1 ) then
+				!phi=buildTen(dimH,workd(ipntr(1):ipntr(1)+n-1))
+				phi%Tensor_Data=workd(ipntr(1):ipntr(1)+n-1)
+				call H_phi(phi)
+				do i=0,n-1
+					workd(ipntr(2)+i)=phi%Tensor_Data(i+1)
+				end do
+			else
+				continu=.false.
+			end if
+		end do
+		if(ido.ne.99)then
+			write(*,*)"znaupd do not success"
+			write(*,*)info
+			stop
+		end if
+		call zneupd(outvector,'A',selework,d,v,n,s0,workev,'I',n,WHICH,num_of_eig,tol,resid,ncv,v,n,iparam,&
+						ipntr,workd,workl,lworkl,rwork,ierr)
+		if(ierr.ne.0)then
+			write(*,*)"zneupd do not success"
+			write(*,*)ierr
+			stop
+		end if
+		if(outvector) then
+			allocate(res(2))
+			res(1)=d(1:num_of_eig)
+			res(2)=v(:,1:num_of_eig)
+		else
+			allocate(res(1))
+			res(1)=d(1:num_of_eig)
+		end if
+		return
+	end function
+	function eigenvalue_H_phi_array24(H_phi,WHICH,num_of_eig,ncv,outvector) result(res)
+		type(Tensor),allocatable::res(:)
+		external::H_phi
+		Character*2,intent(in)::WHICH
+		logical,optional,intent(in)::outvector
+		integer,intent(in)::num_of_eig,ncv
+		real*8::tol
+		integer::maxitr
+		if(present(outvector))then
+			allocate(res(2))
+		else
+			allocate(res(1))
+		end if
+		tol=0.0
+		maxitr=300
+		res=eigenvalue_H_phi_array21(H_phi,WHICH,num_of_eig,ncv,tol,maxitr,outvector)
+		return
+	end function
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+
+
+!			below is 	Double Tensor
+
+
+
+
+	
+!*******************************************************
+!****************  eigen Dvalue   **********************
+!ifvec_=.true.,output eigenvectors,ifvec_ is optional
+!result:[eigenDvalues,realpart]->[eigenDvalues,imagpart]->[eigenvectors]
+	type(DTensorlink) function Deigen_all(H,ifvec_)
+		type(DTensor),intent(in) ::H
+		logical,optional,intent(in)::ifvec_
+		logical::ifvec
+		type(DTensornode),pointer ::valR,valI,vec
+		real*8,allocatable :: Hdata(:),work(:)
+		real*8,allocatable :: DengValR(:),DengValI(:),DengVec(:)
+		integer :: hdim(2),i,j,N,lwork,info,SDIM,N2
+		logical,allocatable::bwork(:)
+		CHARACTER*1::JOBVS
+		type(dimension)::newHdim
+		hdim(1)=H.dim.1
+		hdim(2)=H.dim.2
+		newHdim=.subDim.H
+		if(DgetRank(H).ne.2) then
+			write(*,*)"ERROR in Deng"
+			write(*,*)"input DTensor should be a matrix"
+			stop
+		end if
+		if(hdim(1).ne.hdim(2)) then
+			write(*,*)"ERROR in Deng"
+			stop
+		end if
+		if(present(ifvec_))then
+			ifvec=ifvec_
+		else
+			ifvec=.false.
+		end if
+		N=hdim(1)
+		N2=N*N
+		lwork=3*N
+		
+		allocate(Hdata(N2))
+		allocate(DengValR(N))
+		allocate(DengValI(N))
+		allocate(DengVec(N2))
+		allocate(work(lwork))
+		allocate(bwork(N))
+		call dcopy(N2,H%DTensor_Data,1,Hdata,1)
+		!Hdata=H
+		if(ifvec) THEN
+			JOBVS='V'
+		else
+			JOBVS='N'
+		end if
+		call DGEES(JOBVS,'N',1,N,Hdata,N,SDIM,DengValR,DengValI,DengVec,N,WORK,LWORK,BWORK,INFO)
+		allocate(valR)
+		valR%Ten=DengValR
+		allocate(valI)
+		valI%Ten=DengValI
+		call Dpush_back(Deigen_all,valR)
+		call Dpush_back(Deigen_all,valI)
+		if(ifvec) then
+			allocate(vec)
+			vec%Ten=DengVec
+			call Dresetdim(vec%Ten,(/N,N/))
+			call Dpush_back(Deigen_all,vec)
+		end if
+		return
+	end function	
+!ifvec_=.true.,output eigenvectors,ifvec_ is optional
+!result:[eigenDvalues,realpart]->[eigenDvalues,imagpart]->[eigenvectors]
+!The output is a array of DTensors
+	function Deigen_all_array(H,ifvec_) result(res)
+		type(DTensor),allocatable::res(:)
+		type(DTensor),intent(in) ::H
+		logical,optional,intent(in)::ifvec_
+		logical::ifvec
+		real*8,allocatable :: Hdata(:),work(:)
+		real*8,allocatable :: DengValR(:),DengValI(:),DengVec(:)
+		integer :: hdim(2),i,j,N,lwork,info,SDIM,N2
+		logical,allocatable::bwork(:)
+		CHARACTER*1::JOBVS
+		type(dimension)::newHdim
+		hdim(1)=H.dim.1
+		hdim(2)=H.dim.2
+		newHdim=.subDim.H
+		if(DgetRank(H).ne.2) then
+			write(*,*)"ERROR in Deng"
+			write(*,*)"input DTensor should be a matrix"
+			stop
+		end if
+		if(hdim(1).ne.hdim(2)) then
+			write(*,*)"ERROR in Deng"
+			stop
+		end if
+		if(present(ifvec_))then
+			ifvec=ifvec_
+		else
+			ifvec=.false.
+		end if
+		N=hdim(1)
+		N2=N*N
+		lwork=3*N
+		
+		allocate(Hdata(N2))
+		allocate(DengValR(N))
+		allocate(DengValI(N))
+		allocate(DengVec(N2))
+		allocate(work(lwork))
+		allocate(bwork(N))
+		call dcopy(N2,H%DTensor_Data,1,Hdata,1)
+		!Hdata=H
+		if(ifvec) THEN
+			JOBVS='V'
+			allocate(res(3))
+		else
+			JOBVS='N'
+			allocate(res(2))
+		end if
+		call DGEES(JOBVS,'N',1,N,Hdata,N,SDIM,DengValR,DengValI,DengVec,N,WORK,LWORK,BWORK,INFO)
+		res(1)=DengValR
+		res(2)=DengValI
+		if(ifvec) then
+			res(3)=DengVec
+			call Dresetdim(res(3),(/N,N/))
+		end if
+		return
+	end function	
+
+
+
+end module

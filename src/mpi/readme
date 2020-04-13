@@ -1,0 +1,23 @@
+if you got the message:
+
+
+Tools.f90:25.5:
+
+ use mpi
+     1
+Fatal Error: File 'mpi.mod' opened at (1) is not a GNU Fortran module file
+makefile:22: recipe for target 'Tools.o' failed
+make[1]: *** [Tools.o] Error 1
+make[1]: Leaving directory '/home/tyrant/libTNSP/src/Tensor-3.5.1'
+makefile:6: recipe for target 'lib' failed
+make: *** [lib] Error 2
+
+
+
+then input
+make mpi
+make
+
+or
+
+make mpilib

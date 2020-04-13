@@ -1,0 +1,711 @@
+!************************************************************
+!************* START OF Dimension *******************
+!************************************************************
+!*****************     worning    *********************************
+!				1.In fortran,the data store in memory as:A_{1,1}->A_{2,1}->A_{3,1}
+!			->...A{M,1}->A_{1,2}->A_{2,2}->..->A_{M,2}->..->A_{M-1,N}->A_{M,N}.
+!			But in matlab or C,it is as:A{0,0}->A_{0,1}->A_{0,2}->..A{0,N}
+!			->A{1,0}->..->A{M,N-1}->A_{M,N}.The code of DimConstract and Dimdecompose
+!			is base on the rule of storing data.
+!				2.A is a allocatable array and B is array too,when use A=B before
+!			allocating storage space for A,A will get no data.This happen in 
+!			fortran90 but do not in fortran77.The interface assignments is to  
+!			solve this program.
+!				3.The code is fortran90 version.
+!******************   note   ********************
+!				DimData :store the dimension data
+!				boundary: store the boundary of every dimension,for
+!			 example,the dimension D1=[2,2,3,4,5],after constract the
+!			 first and second index ,it will be D2=[4,3,4,5],then
+!			 the data of D1 :
+!						boundarysize	=6
+!						Dimsize			=5
+!						boundary		=[0,1,2,3,4,5]
+!						DimData			=[2,2,3,4,5]
+!					which means the dimension is [2,2,3,4,5]
+!			 the data of D2 :
+!						boundarysize	=5
+!						Dimsize			=4
+!						boundary		=[0,2,3,4,5]
+!						DimData			=[2,2,3,4,5]
+!				which means the dimension is [4,3,4,5] (or[(2*2),3,2,4] )
+!				the DimData will not change,but will the boundary,the boundary(i)+1
+!			 and boundary(i+1) is the i dimenison,for the case D2,boundary(1)+1
+!			 =0+1=1,boundary(1+1)=2,then the DimData(1) and DimData(2) is the first
+!			 dimenison,such dimenison is 2*2=4
+!				Dimsize is not the length of DimData.
+!			 	such of storing data is convenient for constraction and decomposion.
+!				Send email to tyrants@qq.com to report any bugs.
+!			This is the code for MPI.It is the same as the non-MPI case exacpt the
+!		MPI code at the end of this file.
+!***************************************************************************	
+include '/lib/Tensor/MPI/function.f90'
+module Dimension_typede
+	use usefull_function
+	implicit none
+	include "mpif.h"
+	type Dimension
+		integer,private :: boundarysize=0
+		integer,private :: Dimsize=0
+		integer,allocatable,private :: boundary(:)
+		integer,allocatable,private :: DimData(:)
+	end type Dimension
+	integer,save::test_flag=0
+	logical,private::Dim_check_flag=.false.
+	private::getSubDimlen!return the length of the ith dimension
+	
+	interface assignment(=)
+		module procedure DimInitialization
+		module procedure DimInitialization2
+		module procedure getDim
+	end interface
+	interface operator(+)
+		module procedure Dimadd
+		module procedure DimAdd2
+		module procedure DimAdd3
+	end interface
+	interface operator(.sub.)
+		module procedure getSubDim2
+	end interface
+	interface operator(.i.)
+		module procedure Dim_i
+	end interface
+	interface operator(.equ.)
+		module procedure equal_of_array!If two array of one dimension are equal
+		module procedure equal_of_dim
+	end interface
+!**********************************************************
+!	Other Function or Subroutine:
+!
+!		cleanDimension:clean the data in type(Dimension)
+!
+!		print the type(dimension):
+!			Dprint
+!			Dprint0
+!			Dprint2
+!
+!		Dimsize:return the Dimsize of type(Dimension)
+!
+!		outtotalData: product(DimData)
+!
+!		getSubDim(Dimen,inde,dimenVec)return the inde  dimension	,outpout in a vector of the dimenison   	
+!			
+!		DimConstract(dimen,inde,num):
+!				1,2,3,4,..inde,inde+1,...rank-->1,2,3,4,..(inde*inde+1*..inde+num),...rank     	
+!			if inde+num>boundarysize,it will constract all the index that larger than inde
+!
+!		DimDecompose(dimen,inde,midindde):
+!				(inde,inde+1,..midindde,midindde+1,...rank)-->(inde,inde+1,..midindde),(midindde+1,...rank)	     		
+!			if (inde,inde+1 ..midindde),	midindde larger then next elmemt,do nothing
+!			for example:	
+!				D=[2,2,(3,4,5),2,(3,4)],	boundary=[0,1,2,5,6,8]
+!			DimDecompose(D,3,2)=[2,2,(3,4),5,2,(3,4)],boundary=[0,1,2,4,5,6,8]
+!			DimDecompose(D,3,4) will do nothing
+!
+!		DimDecomposeAll:Decompose all dimension
+!
+!		Dimpermute:permutation of dimension	
+!
+!if flag=1,inv[1,2,3,4,...,ith,ith+1,...]->[ith,1,2,3,..,ith-1,ith+1,ith+2,...]
+!if flag=0,inv[1,2,3,4,...,ith,ith+1,...]->[2,3,..,ith-1,ith,1,ith+1,ith+2,...]
+!	permuteorder(outv,inv,ith,flag)
+!
+!
+!
+!
+!		MPI function:
+!			sent_Dimension(dim1,dim2,ID1,ID2,ierr):send the data of dim1 in ID1 to dim2 in ID2
+!			BCAST_Dimension(dim1,ID,ierr):BCAST The dim1 in ID to every cpus
+!
+!			example
+!				integer::ierr,proID,proNum
+!				type(Dimension)::T1,T2
+!				call mpi_init(ierr)
+!				call mpi_comm_rank(mpi_comm_world,proID,ierr)
+!				call mpi_comm_size(mpi_comm_world,proNum,ierr ) 
+!				call sent_Dimension(T1,T2,0,1,ierr)  !T1 in cpu0 sent to cpu2 and store in T2
+!				call BCAST_Dimension(T1,0,ierr) 		 !T1 in cpu 0 send to every cpus,store in T1 in other cpus
+!
+!**********************************************************	
+	contains
+!***************   cleanDimension   *****************
+	subroutine cleanDimension(Dimen)
+		type(Dimension),intent(inout)::	Dimen
+		Dimen%boundarysize=0
+		Dimen%Dimsize=0
+		if(allocated(Dimen%boundary)) then
+			deallocate(Dimen%boundary)
+		end if
+		if(allocated(Dimen%DimData)) then
+			deallocate(Dimen%DimData)
+		end if
+		return
+	end subroutine
+		
+!****************print the information of dimension ****************************************	
+	subroutine Dprint(Dimen)
+		type(Dimension),intent(in) ::Dimen
+		integer,allocatable :: dimenVec(:)
+		write(*,*) "***   START   ***"
+		write(*,*) Dimen%DimData
+		call getDim(dimenVec,Dimen)
+		write(*,*) "			--				"
+		write(*,*)	dimenVec
+		write(*,*) "***   END   ***"
+	end subroutine
+				
+	subroutine Dprint0(Dimen)
+		type(Dimension),intent(in) ::Dimen
+		integer,allocatable :: dimenVec(:)
+		write(*,*) "***   Dimension Data    ***"
+		write(*,*) Dimen%DimData
+		call getDim(dimenVec,Dimen)
+		write(*,*)	dimenVec
+		write(*,*) "***   Dimension END   ***"
+	end subroutine
+				
+	subroutine Dprint2(Dimen)
+		type(Dimension),intent(in) ::Dimen
+		integer,allocatable :: dimenVec(:)
+		write(*,*) "***   START   ***"
+		write(*,*) "Dimsize"
+		write(*,*) Dimen%Dimsize
+		write(*,*) "boundarysize"
+		write(*,*) Dimen%boundarysize
+		write(*,*) "boundary"
+		write(*,*) Dimen%boundary
+		write(*,*) "DimData"
+		write(*,*) Dimen%DimData
+		call getDim(dimenVec,Dimen)
+		write(*,*) "			--				"
+		write(*,*)	dimenVec
+		write(*,*) "***   END   ***"
+		write(*,*) " "
+	end subroutine
+	
+	type(Dimension) function Dimensioniniti(boundarysize,Dimsize,boundary,DimData)
+		integer,intent(in) :: boundarysize
+		integer,intent(in) :: Dimsize
+		integer,intent(in) :: boundary(:)
+		integer,intent(in) :: DimData(:)
+		allocate(Dimensioniniti%boundary(size(boundary,1)))
+		allocate(Dimensioniniti%DimData(size(DimData,1)))
+		Dimensioniniti%boundary=boundary
+		Dimensioniniti%DimData=DimData
+		Dimensioniniti%boundarysize=boundarysize
+		Dimensioniniti%Dimsize=Dimsize
+		return
+	end function
+	subroutine DimInitialization(Dimen,DimData)
+		type(Dimension),intent(inout) ::Dimen
+		integer,intent(in) :: DimData(:)
+		integer::i
+		call cleanDimension(Dimen)
+		Dimen%Dimsize=size(DimData)
+		Dimen%boundarysize=Dimen%Dimsize+1
+		allocate(Dimen%boundary(Dimen%boundarysize))
+		do i=1,Dimen%boundarysize
+			Dimen%boundary(i)=i-1
+		end do
+		allocate(Dimen%DimData(Dimen%Dimsize))
+		Dimen%DimData=DimData
+		return
+	end subroutine
+				
+	subroutine DimInitialization2(Dimen,Dimen2)
+		type(Dimension),intent(inout) ::Dimen
+		type(Dimension),intent(in) ::Dimen2
+		call cleanDimension(Dimen)
+		Dimen%Dimsize=Dimen2%Dimsize
+		Dimen%boundarysize=Dimen2%boundarysize
+		allocate(Dimen%DimData(size(Dimen2%Dimdata)))
+		allocate(Dimen%boundary(size(Dimen2%boundary)))
+		Dimen%boundary=Dimen2%boundary
+		Dimen%DimData=Dimen2%DimData
+	end subroutine
+	
+	integer	function DimSize(Dimen)
+		type(Dimension),intent(in) :: Dimen
+		DimSize=Dimen%dimSize
+		return
+	end function
+	
+	integer function outtotalData(Dimen)
+		type(Dimension),intent(in) :: Dimen
+		outtotalData=product(Dimen%DimData)
+		return
+	end function				
+!	return the inde dimension	,outpout in a integer
+	integer function Dim_i(Dimen,inde)
+		type(Dimension),intent(in) :: Dimen
+		integer,intent(in) :: inde
+		integer :: i,D1
+		if(inde.gt.dimen%dimSize) then 
+			write(*,*) "ERROR in Dim_i"
+			write(*,*)"stop"
+			stop
+		end if
+		D1=1
+		do i=Dimen%boundary(inde) + 1,Dimen%boundary(inde+1)
+			D1=D1*Dimen%DimData(i)
+		end do
+		Dim_i=D1
+	end function 
+!	return  all the  dimension	,outpout in a vector	
+	subroutine getDim(dimenVec,Dimen)
+		integer,allocatable,intent(out) :: dimenVec(:)
+		type(Dimension),intent(in) :: Dimen
+		integer :: i
+		if(allocated(dimenVec)) then 
+			deallocate(dimenVec)
+		end if
+		allocate(dimenVec(Dimen%DimSize))
+		do i=1,Dimen%Dimsize
+			dimenVec(i)=Dim_i(Dimen,i)
+		end do
+	end 	subroutine		
+
+!	return the inde  dimension	,outpout in a vector of the dimenison    	
+	subroutine getSubDim(Dimen,inde,dimenVec)
+		type(Dimension),intent(in) :: Dimen
+		integer,allocatable :: dimenVec(:)
+		integer,intent(in) :: inde
+		integer::i,j,Dlen
+		Dlen=Dimen%boundary(inde+1)-Dimen%boundary(inde)
+		if(inde.gt.dimen%dimSize) then 
+			write(*,*) "ERROR in getSubDim"
+			return
+		end if
+		if(allocated(dimenVec)) then 
+			deallocate(dimenVec)
+		end if
+		allocate(dimenVec(Dlen))
+		j=1
+		do i=Dimen%boundary(inde) + 1,Dimen%boundary(inde+1)
+			dimenVec(j)=Dimen%DimData(i)
+			j=j+1
+		end do
+	end subroutine
+!	return the inde  dimension	,outpout in a type(dimenison)
+	type(Dimension) function  getSubDim2(Dimen,inde)
+		type(Dimension),intent(in) :: Dimen
+		integer,intent(in) :: inde
+		integer::boundarysize,boundary(2),Dimsize
+		integer,allocatable :: Dimdata(:)
+		integer::i,j,Dlen
+		call getSubDim(Dimen,inde,Dimdata)
+		boundary(1)=0
+		boundary(2)=size(Dimdata)
+		boundarysize=2
+		getSubDim2=Dimensioniniti(boundarysize,1,boundary,DimData)
+	end function
+! The type of input are both dimension	
+	type(Dimension) function  DimAdd(Dimen,Dimen2)
+		type(Dimension),intent(in) :: Dimen,Dimen2
+		integer::boundarysize,Dimsize
+		integer,allocatable :: Dimdata(:),boundary(:)
+		integer::i,j,Dlen,l1,l2
+		boundarysize=Dimen%boundarysize+Dimen2%boundarysize-1
+		allocate(boundary(boundarysize))
+		do i=1,Dimen%boundarysize
+			boundary(i)=Dimen%boundary(i)
+		end do
+		l1=Dimen%boundary(Dimen%boundarysize)
+		do i=1,Dimen2%boundarysize-1
+			boundary(i+Dimen%boundarysize)=Dimen2%boundary(i+1)+l1
+		end do
+		
+		l1=size(Dimen%DimData)
+		l2=size(Dimen2%DimData)
+		allocate(Dimdata(l1+l2))
+		Dimdata(:l1)=Dimen%DimData
+		Dimdata(l1+1:)=Dimen2%DimData
+		DimAdd=Dimensioniniti(boundarysize,Dimen%Dimsize+Dimen2%Dimsize,boundary,DimData)
+	end function
+! The type of input are one dimension and the other vector	
+	type(Dimension) function  DimAdd2(Dimen,Dimenvec)
+		type(Dimension),intent(in) :: Dimen
+		integer,intent(in) :: Dimenvec(:)
+		integer::boundarysize,Dimsize
+		integer,allocatable :: Dimdata(:),boundary(:)
+		integer::i,j,Dlen,l1,l2
+		boundarysize=Dimen%boundarysize+size(Dimenvec)
+		allocate(boundary(boundarysize))
+		do i=1,Dimen%boundarysize
+			boundary(i)=Dimen%boundary(i)
+		end do
+		l1=Dimen%boundary(Dimen%boundarysize)
+		do i=1,size(Dimenvec)
+			boundary(i+Dimen%boundarysize)=i+l1
+		end do
+		l1=size(Dimen%DimData)
+		l2=size(Dimenvec)
+		allocate(Dimdata(l1+l2))
+		Dimdata(:l1)=Dimen%DimData
+		Dimdata(l1+1:)=Dimenvec
+		DimAdd2=Dimensioniniti(boundarysize,Dimen%Dimsize+size(Dimenvec),boundary,DimData)
+	end function
+	type(Dimension) function  DimAdd3(Dimenvec,Dimen)
+		type(Dimension),intent(in) :: Dimen
+		integer,intent(in) :: Dimenvec(:)
+		type(Dimension)::Dimenvec_
+		Dimenvec_=Dimenvec
+		DimAdd3=DimAdd(Dimenvec_,Dimen)
+	end function
+	
+	integer function getSubDimlen(Dimen,inde)
+		type(Dimension),intent(in) :: Dimen
+		integer,intent(in) :: inde
+		getSubDimlen=Dimen%boundary(inde+1)-Dimen%boundary(inde)
+	end function
+!		1,2,3,4,..inde,inde+1,...rank-->1,2,3,4,..(inde*inde+1*..inde+num),...rank     	
+!		if inde+num>boundarysize,it will constract all the index that larger than inde
+	type(Dimension) function DimConstract(dimen,inde,num)
+		type(Dimension),intent(in) :: Dimen
+		integer,intent(in):: inde,num
+		integer :: boundarysize
+		integer :: Dimsize,i
+		integer,allocatable :: boundary(:)
+		if(inde.gt.dimen%Dimsize) then 
+			write(*,*) "ERROR in DimConstract"
+			return
+		end if
+		if((num.le.0).or.(inde.eq.dimen%Dimsize)) then
+			DimConstract=dimen
+			return
+		end if
+		if(inde+num.ge.dimen%boundarysize) then
+			boundarysize=inde+1
+			Dimsize=inde
+			allocate(boundary(boundarysize))
+			boundary(:inde)=dimen%boundary(:inde)
+			boundary(inde+1)=dimen%boundary(dimen%boundarysize)
+			DimConstract=Dimensioniniti(boundarysize,Dimsize,boundary,dimen%DimData)
+			return
+		end if
+		boundarysize=dimen%boundarysize-num
+		Dimsize=dimen%Dimsize-num
+		allocate(boundary(boundarysize))
+		boundary(:inde)=dimen%boundary(:inde)
+		do i=inde+1,boundarysize
+			boundary(i)=dimen%boundary(i+num)
+		end do
+		DimConstract=Dimensioniniti(boundarysize,Dimsize,boundary,dimen%DimData)
+	end function
+     	
+
+     	
+!		(inde,inde+1,..midindde,midindde+1,...rank)-->(inde,inde+1,..midindde),(midindde+1,...rank)	     		
+!		if (inde,inde+1 ..midindde),	midindde larger then next elmemt,do nothing
+!		for example:	
+!			D=[2,2,(3,4,5),2,(3,4)],	boundary=[0,1,2,5,6,8]
+!		DimDecompose(D,3,2)=[2,2,(3,4),5,2,(3,4)],boundary=[0,1,2,4,5,6,8]
+!		DimDecompose(D,3,4) will do nothing
+	type(Dimension) function DimDecompose(dimen,inde,midindde)
+		type(Dimension),intent(in) :: Dimen
+		integer,intent(in):: inde,midindde
+		integer :: boundarysize
+		integer :: Dimsize,i
+		integer,allocatable :: boundary(:)
+		if(dimen%boundary(inde) +midindde .ge.dimen%boundary(inde+1)) then
+			DimDecompose=dimen
+			return
+		end if
+		boundarysize=dimen%boundarysize+1
+		Dimsize=dimen%Dimsize+1
+		allocate(boundary(boundarysize))
+		boundary(:inde)=dimen%boundary(:inde)
+		boundary(inde+1)=dimen%boundary(inde) + midindde
+		do i=inde+1,boundarysize-1
+			boundary(i+1)=dimen%boundary(i)
+		end do
+		DimDecompose=Dimensioniniti(boundarysize,Dimsize,boundary,dimen%DimData)
+		end function
+		
+		type(Dimension) function DimDecomposeAll(dimen)
+		type(Dimension),intent(in) :: Dimen
+		integer :: boundarysize
+		integer :: Dimsize,i
+		integer,allocatable :: boundary(:)
+		if(dimen%boundarysize.eq.size(dimen%DimData)+1) then
+			DimDecomposeAll=dimen
+			return
+     	end if
+		boundarysize=size(dimen%DimData)+1
+		Dimsize=size(dimen%DimData)
+		allocate(boundary(boundarysize))
+		do i=1,boundarysize
+			boundary(i)=i-1
+		end do
+		DimDecomposeAll=Dimensioniniti(boundarysize,Dimsize,boundary,dimen%DimData)
+	end function
+     
+     			
+	type(Dimension) function Dimpermute(dimen,v)
+		type(Dimension),intent(in) :: Dimen
+		integer,intent(in):: v(Dimen%dimSize)
+		integer::i,boundarysize,Dimsize,datalen,subDlen,k
+		integer,allocatable :: boundary(:),DimData(:)
+		integer,allocatable :: dimenVec(:)
+		Dimsize=Dimen%Dimsize
+		boundarysize=Dimen%boundarysize
+		datalen=size(Dimen%DimData)
+		allocate(boundary(boundarysize))
+		allocate(DimData(datalen))
+		boundary(1)=0
+		k=1
+		do i=1,Dimen%dimSize
+			subDlen=getsubDimlen(dimen,v(i))
+			boundary(i+1)=boundary(i)+subDlen
+			call getSubDim(Dimen,v(i),dimenVec)
+			DimData(k:subDlen+k-1)=dimenVec
+			k=k+subDlen
+		end do
+		Dimpermute=Dimensioniniti(boundarysize,Dimsize,boundary,DimData)
+	end function
+
+	logical function equal_of_dim(dim1,dim2)
+		type(Dimension),intent(in) :: dim1,dim2
+		integer,allocatable :: dimenVec1(:)
+		integer,allocatable :: dimenVec2(:)
+		call getDim(dimenVec1,dim1)
+		call getDim(dimenVec2,dim2)
+		equal_of_dim=equal_of_array(dimenVec1,dimenVec2)
+	end function
+!************* equal_of_array *************
+	logical function equal_of_array(a,b)
+		integer,intent(in) :: a(:),b(:)
+		integer :: la,lb,i,l
+		la=size(a,1)
+		lb=size(b,1)
+		equal_of_array=.false.
+		if(la.eq.lb) then
+			l=count(abs(a-b).gt.0)
+			if(l.eq.0) then
+				equal_of_array=.true.
+			end if
+		end if
+		return
+	end function
+!******************************************************************************
+!if flag=1,inv[1,2,3,4,...,ith,ith+1,...]->[ith,1,2,3,..,ith-1,ith+1,ith+2,...]
+!if flag=0,inv[1,2,3,4,...,ith,ith+1,...]->[2,3,..,ith-1,ith,1,ith+1,ith+2,...]
+	subroutine permuteorder(outv,inv_,ith,flag)
+		integer,allocatable,intent(inout)::outv(:)
+		integer,intent(in)::inv_(:)
+		integer,intent(in)::ith,flag
+		integer,allocatable::inv(:)
+		integer::lenv,i
+		call assignments(inv,inv_)
+		lenv=size(inv)
+		if(allocated(outv)) then
+			deallocate(outv)
+		end if
+		allocate(outv(lenv))
+		if(flag.eq.1) then
+			outv(1)=inv(ith)
+			do i=1,ith-1
+				outv(i+1)=inv(i)
+			end do
+			do i=ith+1,lenv
+				outv(i)=inv(i)
+			end do
+		else if(flag.eq.0) then
+			do i=2,ith
+				outv(i-1)=inv(i)
+			end do
+			outv(ith)=inv(1)
+			do i=ith+1,lenv
+				outv(i)=inv(i)
+			end do
+		else
+			write(*,*)"ERROR in permuteorder"
+			stop
+		end if
+		return
+	end subroutine
+	logical function if_original_dim(dimen)
+		type(Dimension),intent(in)::dimen
+		if(size(dimen%DimData).eq.dimen%Dimsize) then	
+			if_original_dim=.true.
+		else
+			if_original_dim=.false.
+		end if
+		return
+	end function
+!********************************************************************************************
+!********************************************************************************************
+!********************************************************************************************
+!********************************************************************************************
+!**************  there is no complex*16 type function ***************************************
+! This part written by Wenyuan Liu
+!
+!********************************************************************************************
+!********************************************************************************************
+!********************************************************************************************
+!********************************************************************************************
+!!! Given tensor T, in order to decompos T in a certan way, we can set T%TenDim using this function.
+!  T is a  matrix with size 8 x 8.
+
+! eg 1:  We can use this function to let T become a 4-index tensor.  
+! Input parameter: Dimen=T%TenDim, inboundary = (/0,1,2,3,4/),indimdata = (/2,2,2,2/)
+
+! eg 2: if we set Dimen=T%TenDim, inboundary = (/0,1,2,4/),indimdata = (/2,2,2,2/)
+! T will become a 3-index tensor, with each dimension size is 2, 2, 2*2.
+! Now we can apply operator .dc. to the 3-index T, then T will become a 4-index  tensor.
+
+	subroutine SetDimension(Dimen,inboundary,indimdata)
+		type(Dimension),intent(inout) ::Dimen
+		integer,intent(in) :: inboundary(:),indimdata(:)
+		call cleanDimension(Dimen)
+		Dimen%boundarysize=size(inboundary)
+		Dimen%Dimsize=Dimen%boundarysize-1
+		allocate(Dimen%boundary(size(inboundary)))
+		allocate(Dimen%DimData(size(indimdata)))
+		Dimen%boundary=inboundary
+		Dimen%DimData=indimdata
+	end subroutine
+!********************************************************************************************
+!********************************************************************************************
+!********************************************************************************************
+!********************************************************************************************
+
+!**********************************************************************
+!**********************************************************************
+!	the code below is for MPI
+!**********************************************************************
+	subroutine sent_Dimension(Dimen1,Dimen2,ID1,ID2,ierr)
+		type(Dimension),intent(in)::Dimen1
+		type(Dimension),intent(inout)::Dimen2
+		integer,intent(in)::ID1,ID2,ierr
+		integer::proID,proNum,tag,len1,len2,istatus(MPI_STATUS_SIZE)
+		tag=1
+		call mpi_comm_rank(mpi_comm_world,proID,ierr)
+		call mpi_comm_size(mpi_comm_world,proNum,ierr )
+!**********************************************************************************		
+		if(proID.eq.ID1) then
+			call mpi_send(Dimen1%boundarysize,1,MPI_integer,ID2,tag,MPI_Comm_world,ierr)
+		end if
+		if(proID.eq.ID2) then
+			call mpi_recv(Dimen2%boundarysize,1,MPI_integer,ID1,tag,MPI_Comm_world,istatus,ierr)
+		end if
+!**********************************************************************************				
+		if(proID.eq.ID1) then
+			call mpi_send(Dimen1%Dimsize,1,MPI_integer,ID2,tag,MPI_Comm_world,ierr)
+		end if
+		if(proID.eq.ID2) then
+			call mpi_recv(Dimen2%Dimsize,1,MPI_integer,ID1,tag,MPI_Comm_world,istatus,ierr)
+		end if
+!**********************************************************************************		
+		if(proID.eq.ID1) then
+			len1=size(Dimen1%boundary)
+			call mpi_send(len1,1,MPI_integer,ID2,tag,MPI_Comm_world,ierr)
+		end if
+		if(proID.eq.ID2) then
+			call mpi_recv(len1,1,MPI_integer,ID1,tag,MPI_Comm_world,istatus,ierr)
+			if(allocated(Dimen2%boundary)) then
+				deallocate(Dimen2%boundary)
+			end if
+			allocate(Dimen2%boundary(len1))
+		end if
+		
+		if(proID.eq.ID1) then
+			call mpi_send(Dimen1%boundary,len1,MPI_integer,ID2,tag,MPI_Comm_world,ierr)
+		end if
+		if(proID.eq.ID2) then
+			call mpi_recv(Dimen2%boundary,len1,MPI_integer,ID1,tag,MPI_Comm_world,istatus,ierr)
+		end if
+!**********************************************************************************		
+		if(proID.eq.ID1) then
+			len2=size(Dimen1%DimData)
+			call mpi_send(len2,1,MPI_integer,ID2,tag,MPI_Comm_world,ierr)
+		end if
+		if(proID.eq.ID2) then
+			call mpi_recv(len2,1,MPI_integer,ID1,tag,MPI_Comm_world,istatus,ierr)
+			if(allocated(Dimen2%DimData)) then
+				deallocate(Dimen2%DimData)
+			end if
+			allocate(Dimen2%DimData(len2))
+		end if
+		
+		if(proID.eq.ID1) then
+			call mpi_send(Dimen1%DimData,len2,MPI_integer,ID2,tag,MPI_Comm_world,ierr)
+		end if
+		if(proID.eq.ID2) then
+			call mpi_recv(Dimen2%DimData,len2,MPI_integer,ID1,tag,MPI_Comm_world,istatus,ierr)
+		end if
+		return
+	end subroutine
+	
+	subroutine BCAST_Dimension(Dimen1,ID,ierr)
+		type(Dimension),intent(inout)::Dimen1
+		integer,intent(in)::ID,ierr
+		integer::proID,proNum,tag,len1,len2,istatus(MPI_STATUS_SIZE)
+		tag=1
+		call mpi_comm_rank(mpi_comm_world,proID,ierr)
+		call mpi_comm_size(mpi_comm_world,proNum,ierr )
+!**********************************************************************************		
+		call MPI_BCAST(Dimen1%boundarysize,1,MPI_integer,ID,MPI_COMM_WORLD,ierr)	
+!**********************************************************************************	
+		call MPI_BCAST(Dimen1%Dimsize,1,MPI_integer,ID,MPI_COMM_WORLD,ierr)	
+!**********************************************************************************		
+		if(proID.eq.ID) then
+			len1=size(Dimen1%boundary)
+		end if
+		call MPI_BCAST(len1,1,MPI_integer,ID,MPI_COMM_WORLD,ierr)	
+		if(len1.eq.0) then
+			write(*,*)"ERROR in BCAST_Dimension,len1=0"
+			return
+		end if	
+		if(proID.ne.ID) then
+			if(allocated(Dimen1%boundary)) then
+				deallocate(Dimen1%boundary)
+			end if
+			allocate(Dimen1%boundary(len1))
+		end if
+		call MPI_BCAST(Dimen1%boundary,len1,MPI_integer,ID,MPI_COMM_WORLD,ierr)		
+!**********************************************************************************		
+		if(proID.eq.ID) then
+			len2=size(Dimen1%DimData)
+		end if
+		call MPI_BCAST(len2,1,MPI_integer,ID,MPI_COMM_WORLD,ierr)		
+		if(len2.eq.0) then
+			write(*,*)"ERROR in BCAST_Dimension,len2=0"
+			return
+		end if
+		if(proID.ne.ID) then
+			if(allocated(Dimen1%DimData)) then
+				deallocate(Dimen1%DimData)
+			end if
+			allocate(Dimen1%DimData(len2))
+		end if
+		call MPI_BCAST(Dimen1%DimData,len2,MPI_integer,ID,MPI_COMM_WORLD,ierr)	
+		return
+	end subroutine
+end module
+!****************************************************
+!*************** ENF OF Dimension *************
+!****************************************************
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

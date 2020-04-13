@@ -1,0 +1,31 @@
+2017.2.24
+
+
+    new function of 
+                    eig(H_phi,s0,num_of_eig)
+                    eig(H_phi,parameter,s0,num_of_eig)
+                    eig(H_phi,parameterArray,s0,num_of_eig)
+                    eig(H_phi,parameterArray,info,s0,num_of_eig)
+    
+    
+    Output the eigen value near s0, and output the eigen vextor
+    
+            H_phi is a outside subroutine  for H*|phi>
+            
+            
+            H_phi parameterArray info are the same as the function for min eigen value
+
+
+
+!******************************************************************************************************************
+
+
+2017.8.7
+
+   use usefull_function ==> 
+                               use Tools
+                               use mpi ! If you use the mpi routine
+                               
+   because the change in Tensor-3.3
+   
+               

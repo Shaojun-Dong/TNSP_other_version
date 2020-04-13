@@ -1,0 +1,105 @@
+stop_error                     1d-8           !according to the value of stop_type
+max_running                    30000          !max running
+diff_delta                     1d-8           !differentiation,if input Gradient function, it is useless
+LinearSearch_max_running        1             !
+p_flag                          1             !if 1,print the progress
+max_step                        1.            !See the note below 
+delta_step                      0.95          !max_step=max_step*delta_step,delta_step should smaller than 1 
+directionFlag                    2            !See the note below
+num_same_step                  10             !See the note below
+min_step_when_num_same_step     0.01			 !See the note below
+run_type									2            !See the note below
+stop_type								2            !See the note below
+num_run_type                     3            !It is useful when run_type=6,see the note of run_type=6
+step_run_type                   100 200       !It is useful when run_type=6,see the note of run_type=6
+which_type                       1 2 3        !It is useful when run_type=6,see the note of run_type=6
+
+
+
+
+
+
+
+!****************  run_type  ******************
+run_type=1
+		use LinearSearch along the CG direction of GM direction, LinearSearch_max_running should be larger than 0
+		at the first time  max_step is the randomt tail point in LinearSearch
+run_type=2	
+		do not use LinearSearch. Go along the direction with length x :newP = P + x * direction
+	  when f(newP)>f(P) (find min), x=x*delta_step , do again
+	  at the first time x=max_step
+run_type=3
+		do not use LinearSearch. Go along the direction with length x :newP = P + x * direction
+	  do newP = P + x * direction for num_same_step times, and then x=x*delta_step. num_same_step
+	  should be larger than 0.
+run_type=4	  
+		the same as run_type=3,but  when x<min_step_when_num_same_step , set run_type=2,max_step=min_step_when_num_same_step
+		x=max_step, search again
+run_type=5	  
+		the same as run_type=3,but  when x<min_step_when_num_same_step , set run_type=1,max_step=min_step_when_num_same_step
+		x=0d0, search again
+run_type=6	  
+		using the type of which_type,suppose num_run_type=N, then will read N-1 value of step_run_type and N value which_type.
+		suppse they are
+			num_run_type                     3            !It is useful when run_type=6
+			step_run_type                   100 200    !It is useful when run_type=6
+			which_type                       3 1 2        !It is useful when run_type=6		
+		then it means:
+		      do i=1 to 100, runtype=3
+		      and i=101 to 200 , runtype=1
+		      at lase ,i=201 to the end, runtype=2
+		if runtype=4 or 5 .the i will count from the sitiation when x<min_step_when_num_same_step
+		example
+			num_run_type                     2            !It is useful when run_type=6
+			step_run_type                   100    !It is useful when run_type=6
+			which_type                       4 1        !It is useful when run_type=6	
+		then it means:
+		      do runtype=4, until x<min_step_when_num_same_step, and change to run_type=2 doing i=1 to 100 
+		      at lase ,i=201 to the end, runtype=1		
+		when changing run_type, x will be reset to max_step. and run_type=1, the length of randomt tail point
+		is  max_step
+		
+!****************  max_step  ******************
+in run_type=1. the tail step will be x
+in run_type=2. The first time go along the dirction with max_step,newP=P+(max_step*direction),
+               if f(NewP) > f(P) when finding min, x=x*delta_step,do again
+in run_type=3. The first time go along the dirction with max_step,newP=P+(x*direction),x=max_step.
+               go on the step of newP, and set x=x*delta_step
+               
+!****************  stop_type  ******************
+stop_type=1, stop_error will be stop_error=|Gradient|^2
+stop_type=2, stop_error will be stop_error=abs(f(new_x)-f(x))
+
+!****************  min_step_when_num_same_step ***
+in run_type=4. It first run as run_type=3, when x<min_step_when_num_same_step, set run_type=2,max_step=min_step_when_num_same_step
+		x=max_step, search again
+in run_type=4. It first run as run_type=3, when x<min_step_when_num_same_step, set run_type=1,max_step=min_step_when_num_same_step
+		x=max_step, search again
+		
+!*************** num_same_step  ******************
+in run_type=3. First set x=max_step, and then x=x* delta_step. every x run num_same_step time
+
+!************ directionFlag  *******************
+0 : Gradient Method
+1 : g_{i+1}*g_i,2:g_{i+1}*(g_{i+1}-g_i)
+3 : g_{i+1}*(g_{i+1}-g_i) or g_{i+1}*g_i
+
+!************ diff_delta ***********************
+If do not input Gradient function
+the Gradient=(f(P+Delta)-f(P-Delta))/(2*Delta)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,20 @@
+ 
+ function Func(A)
+     class(TestType)::Func
+        ---
+   end function
+
+
+ subroutine Func2(A)
+   type(TestType)::A
+   ...
+   end subroutine
+
+
+this code will gose wrong:
+    call Func2(Func(A))
+
+it should be like this:
+   type(TestType)::B,A
+    B=Func(A)
+    call Func2(B)

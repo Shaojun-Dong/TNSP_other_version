@@ -1,0 +1,276 @@
+2017.2.23
+
+
+     add a new function of  set_fermi_factor
+     
+     
+        by default fermi_factor=-1 , that means interchange two fermi operators will times -1
+        if fermi_factor= 1, it will be a symmetry tensor of parity
+
+
+2017.2.25
+
+  Add the error messages in T%ProductTensorRoutine:
+    
+          All the input and output Tensors can not be the same variable
+  
+  
+  Add new subrouteine of SymTensor:
+  
+      1.call T%contract(A,[legnames1],B,[legnames2],len): the same as T=contract(A,[legnames1],B,[legnames2],len)
+    NOTE: This routine will reorder the dimenison of both A and B, but will not change the value.
+        2.call T%contract([legnames1],B,[legnames2],len): the same as T=contract(T,[legnames1],B,[legnames2],len)
+    NOTE: This routine will reorder the dimenison of both A and B, but will not change the value.
+        3.call T%contract(A,[legnames1],[legnames2],len): the same as T=contract(A,[legnames1],T,[legnames2],len)
+    NOTE: This routine will reorder the dimenison of both A and B, but will not change the value.
+    
+ Add new subrouteine of fTensor:
+  
+      1.call T%contract(A,[legnames1],B,[legnames2],len): the same as T=contract(A,[legnames1],B,[legnames2],len)
+    NOTE: This routine will reorder the dimenison of both A and B, but will not change the value.
+        2.call T%contract([legnames1],B,[legnames2],len): the same as T=contract(T,[legnames1],B,[legnames2],len)
+    NOTE: This routine will reorder the dimenison of both A and B, but will not change the value.
+        3.call T%contract(A,[legnames1],[legnames2],len): the same as T=contract(A,[legnames1],T,[legnames2],len)
+    NOTE: This routine will reorder the dimenison of both A and B, but will not change the value.
+    
+ 
+ 
+ modify code of ProductTensorRoutine in SymTensor
+ 
+    call T%ProductTensorRoutine(A,B)
+         first empty T 
+         and then T=A*B
+ 
+
+
+2017.2.27
+
+    New function for T%contract:
+    
+      1.call T%contract(A,name1,B,name2): the same as T=contract(A,name1,B,name2)
+  NOTE: This routine will reorder the dimenison of both A and B, but will not change the value.
+      2.call T%contract(name1,B,name2): the same as T=contract(T,name1,B,name2)
+  NOTE: This routine will reorder the dimenison of both A and B, but will not change the value.
+      3.call T%contract(A,name1,name2): the same as T=contract(A,[legnames1],T,name2)
+  NOTE: This routine will reorder the dimenison of both A and B, but will not change the value.
+
+
+2017.3.13
+   
+    speed up T1*T2 by
+    
+    
+		if(rank1.ge.2) then
+			newD=D1.sub.1
+			do i=2,rank1-1
+				newD=newD+(D1.sub.i)
+			end do
+			D1=D1%fuseIndex(1,rank1-2)
+		end if
+		if(rank2.ge.2) then
+			do i=2,rank2
+				newD=newD+(D2.sub.i)
+			end do
+			D2=D2%fuseIndex(2,rank2)
+		end if
+		
+		------------->
+    
+		newD=D1.sub.[1,rank1-1]
+		D1=D1%fuseIndex(1,rank1-2)
+		newD=newD+(D2.sub.[2,rank2])
+		D2=D2%fuseIndex(2,rank2)
+
+
+2017.3.21
+
+     Add operator of SymTensor.subDim.[i1,i2],fTensor.subDim.[i1,i2]
+
+
+2017.5.5
+
+       Modify the code in SymTensor.f90 and fTensor.f90: contract_name_routine,contract_name_routine1,contract_name_routine2,contract_name_routine3,
+    contract_name_routine4,contract_name_routine5 and contract_name_routine6
+       The input and output Tensor
+       
+       
+         class(SymTensor),target,intent(inout)::T    =====>  class(SymTensor),target::T
+         class(SymTensor),target,intent(inout):: T1  =====>  class(SymTensor),target::T1
+         class(SymTensor),target,intent(inout):: T2  =====>  class(SymTensor),target::T2
+         
+         class(fTensor),target,intent(inout)::T    =====>  class(fTensor),target::T
+         class(fTensor),target,intent(inout):: T1  =====>  class(fTensor),target::T1
+         class(fTensor),target,intent(inout):: T2  =====>  class(fTensor),target::T2
+
+
+
+
+2017.7.4
+
+     Fix bug if SymTensor.f90
+        C=A*B, when both A and B are rank=1, C%totalblock=0  ---> C%totalblock=1
+        in ProductTensorRoutine
+           ProductTensor
+
+2017.7.22
+     
+     Fix bug of SymTensor.f90:
+                                  ST1=ST2
+                                  if ST1 is Static and the data type of ST1 and ST2 is not the Same
+                                  
+      do i=1,length
+			if(T2%Block(i)%getFlag())then
+				T%Block(i)=T2%Block(i)
+			else
+				call T%Block(i)%empty()
+			end if
+		end do
+		
+	Change as
+		
+		do i=1,length
+			if(T2%Block(i)%getFlag())then
+				if(notifDynamic)then
+					if(oldType.ne.T%Block(i)%getType())then
+						call T%Block(i)%setType(oldType)
+					end if
+				end if
+				T%Block(i)=T2%Block(i)
+			else
+				call T%Block(i)%empty()
+			end if
+		end do
+		
+		
+		
+		
+		
+2017.8.6
+
+    MPI_SUM_fTensor or MPI_SUM_SymTensor will go wrong when there are some empty block in the symtensor, not not Fix yet
+
+
+
+
+!******************************************************************************************************************
+
+
+2017.8.7
+
+   use usefull_function ==> 
+                               use Tools
+                               use mpi
+                               
+   because the change in Tensor-3.3
+
+
+
+
+
+
+
+
+2017.8.22
+
+
+    New element in type(QuanNum):
+              FermiArrow  
+    delete the element of MaxQN in type(QuanNum)
+    
+    
+    rewrite the data of type(QuanNum)
+
+
+
+2017.8.22
+
+
+     New function of T%getMinQN(ith), QN%getMinQN(), Symdimension%getMinQN(ith), T%getMaxQN(ith), QN%getMaxQN(), Symdimension%getMaxQN(ith)
+
+2017.8.24
+
+
+
+      New function of 
+                index=SymTensor%zeroBlockIndex:  out put the block index of the block all the elements of which is zero but it is not empty
+      New subroutine 
+                call SymTensor%emptyZeroBlock(): empty the block whose element is 0
+
+2017.8.26
+
+       New function:
+         SymT%SVD()
+         SymT2=SymT%CutSymDim()
+         call SymT%CutDim()
+         call SymT%SVDRoutine(U,s,V,num), num is a number , the routine will cut the zero deg
+         logi=QuanNum%ifzeroDeg()
+         call QuanNum%killZeroDeg()
+         QuanNum1=QuanNum%NonZeroDeg()
+         [i,j]=QuanNum%NonZeroDegIndex()
+         logi=SymDimension%ifzeroDeg()
+         fuseOrder will not save the quannum number who is 0 in FermiU1Tool
+         SVD of U1fTensor  can cut according to a integer nunber
+
+
+2017.8.29
+
+
+        call SVDSymTensor(num), if num <0 will not cut  the quantum number
+
+
+
+
+2017.9.2
+
+
+        type(fTensor) is the tensor for fermi, one should set the symmetry group before using
+
+
+
+2017.9.3
+   
+   
+       The code in SymDimnenison.f90  NameOrder(w)  change to  FindOrder(w)
+       
+          if there is no such name that has the name w, it print the error message
+
+
+2017.9.5
+
+      Rewrite SymTensor.f90 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
